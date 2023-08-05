@@ -1,0 +1,64 @@
+#+TITLE: EPaper Meshtastic Map for Black Rock City
+
+* BRC Meshtastic Paper
+
+BRC Meshtastic Paper is an tool designed to facilitate the tracking and visualization of individuals' locations at Burning Man using mesh networks. The tool is tailored to interact with meshtastic devices, either through a serial connection or a socket connection, serving as a digital guide through the activity of the Black Rock City.
+
+[[./media/display_map.png]]
+
+** Project Description
+
+If you happen to be here and have no idea what I am talking about:
+
+Burning Man is a festival of art, self-expression, and community, set in the sprawling expanse of the Nevada desert. As such, tracking friends or points of interest can be challenging. BRC Meshtastic Paper addresses this issue by leveraging map data, mesh network data, and the meshtastic API. It plots the locations of nodes (people or places) on a map and visualizes the connections between them, essentially creating a real-time GPS guide to navigate the festival grounds.
+
+** Hardware
+
+I personally have been using the WaveShare 7.5 (800x480), adjust resolution if you want to use a different one
+
+[[https://www.amazon.com/gp/product/B09JSFTGV6/ref=ppx_yo_dt_b_search_asin_title?ie=UTF8&psc=1][Amazon]] (around $50 in Aug 2023)
+[[https://www.aliexpress.us/item/3256804935498922.html][AliExpress]] (compatible one for less than $20)
+
+Remember to buy an epaper SPI hat
+
+** Debug Mode
+
+Debug mode can be activated in BRC Meshtastic Paper by appending the --debug flag while running the program. This mode can be particularly beneficial when you are trying to troubleshoot issues or need to center the map coordinates for a more focused view of a specific area.
+
+To use it, run:
+
+#+begin_src bash
+python draw_map.py --debug
+#+end_src
+
+** Configuration
+
+The =config.py= file is a central component, employed to set the coordinates for the map, the dimensions of the city, and the map image. To center the map on the screen, you need to adjust the coordinates in the =config.py= file. Here is an example configuration:
+
+#+begin_src python
+# config.py
+
+MAN_LAT = 40.786400
+MAN_LONG = -119.203500
+
+#+end_src
+
+You can modify these values to meet your requirements. For instance, if you want to visualize a different location, you could change =MAP_CENTER= to a new set of coordinates. Or if you have a different image you want to use for the map, you can change =IMAGE= to point to your new image file.
+
+** Connection Modes
+
+BRC Meshtastic Paper provides two methods to interact with meshtastic devices:
+
+- *Serial connection*: This is the default mode of operation. When the tool is run, it will attempt to connect to the device over a serial connection.
+
+- *Socket connection*: If you prefer to connect to the device over a network, you can utilize a socket connection. To use this mode, you need to set the appropriate configuration in the =display_map.py= file:
+
+#+begin_src python
+# display_map.py
+
+        #interface = meshtastic.tcp_interface.TCPInterface('192.168.0.188')
+        interface = meshtastic.serial_interface.SerialInterface()
+
+#+end_src
+
+BRC Meshtastic Paper is here to enhance your Burning Man experience. If you encounter any issues or have suggestions, please raise an issue on our GitHub page.
