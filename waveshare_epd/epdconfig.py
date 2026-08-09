@@ -67,10 +67,10 @@ def delay_ms(ms):
 
 
 def spi_writebyte(data):
-    """Write a byte over SPI."""
+    """Write bytes over SPI."""
     if _SPI is None:
         return
-    _SPI.writebytes([data])
+    _SPI.writebytes(data)
 
 
 def digital_write(pin, value):
