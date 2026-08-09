@@ -31,10 +31,9 @@ def test_screen():
     if epd.init() != 0:
         print("ERROR: ePaper init failed — check SPI connection and wiring.")
         return
-
-    # Clear screen
-    print("Clearing screen...")
+    print("Init OK. Clearing screen...")
     epd.Clear()
+    print("Clear OK. Drawing pattern...")
 
     # Draw test pattern
     img = Image.new("1", (epd.width, epd.height), 255)
