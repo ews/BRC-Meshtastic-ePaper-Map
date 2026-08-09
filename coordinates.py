@@ -36,13 +36,9 @@ def _bearing_deg(lat1, lon1, lat2, lon2):
 def _validate_coords(lat, lon):
     """Check that coordinates are plausible (near BRC)."""
     if abs(lat - c.MAN_LAT) > _MAX_DEGREES_FROM_MAN:
-        logging.warning(
-            "latitude %.6f is far from BRC center (%.6f)", lat, c.MAN_LAT
-        )
+        logging.warning("latitude %.6f is far from BRC center (%.6f)", lat, c.MAN_LAT)
     if abs(lon - c.MAN_LONG) > _MAX_DEGREES_FROM_MAN:
-        logging.warning(
-            "longitude %.6f is far from BRC center (%.6f)", lon, c.MAN_LONG
-        )
+        logging.warning("longitude %.6f is far from BRC center (%.6f)", lon, c.MAN_LONG)
 
 
 def gps_to_burning_man(lat, lon):
@@ -112,7 +108,7 @@ def gps_to_image_coordinates(coord):
 
     # Convert to pixel coordinates
     x = c.left_limit + x_norm * (c.right_limit - c.left_limit)
-    y = c.top_limit + y_norm * (c.bottom_limit - c.top_limit)
+    y = c.twelve_limit + y_norm * (c.bottom_limit - c.twelve_limit)
 
     # Rotate around The Man
     dx = x - c.man_svg[0]
