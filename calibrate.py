@@ -462,7 +462,7 @@ def build_page():
         [40.791616, -119.229414],
     ]
 
-    map_path = ROOT / "media" / "Map_1bit.png"
+    map_path = ROOT / cfg.get("map_file", "media/Map_1bit.png")
     from PIL import Image
 
     img = Image.open(map_path)
@@ -486,7 +486,12 @@ def build_page():
 
 
 def serve_map_png():
-    map_path = ROOT / "media" / "Map_1bit.png"
+    """Read the map PNG as bytes."""
+    import yaml
+
+    with open(CONFIG_PATH) as f:
+        cfg = yaml.safe_load(f)
+    map_path = ROOT / cfg.get("map_file", "media/Map_1bit.png")
     try:
         with open(map_path, "rb") as f:
             return f.read()

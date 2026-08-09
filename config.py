@@ -27,6 +27,7 @@ HEIGHT = _cfg["display"]["height"]
 sleep_seconds = _cfg["sleep_seconds"]
 
 # --- Map image placement ---
+map_file = _cfg.get("map_file", "media/Map_1bit.png")
 image_position = tuple(_cfg["image_position"])
 
 # --- GPS → Screen projection ---

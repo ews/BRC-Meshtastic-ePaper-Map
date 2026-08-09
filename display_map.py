@@ -64,7 +64,7 @@ def equal_bm_coordinates(new, old):
 
 def _load_map():
     """Load the base map image and prepare PIL drawing surfaces."""
-    png = Image.open("./media/Map_1bit.png")
+    png = Image.open(c.map_file)
     black_layer = Image.new("1", (c.WIDTH, c.HEIGHT), 255)
     black_layer.paste(png, c.image_position)
 
