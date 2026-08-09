@@ -13,7 +13,7 @@ sleep_seconds: 60
 # Map file (in media/ directory)
 map_file: "media/Map_resized.png"
 # Where the map is pasted on the screen (top-left corner)
-image_position: [-298, 0]
+image_position: [-135, 121]
 
 # --- GPS → Screen Calibration ---
 # Provide 2+ anchor points: [lat, lon, screen_x, screen_y]
@@ -22,7 +22,7 @@ image_position: [-298, 0]
 # All pixel coordinates are relative to the SCREEN (not the map image).
 anchors:
   - [40.783247, -119.207884, 240, 400] # The Man (centered — calibrate!)
-  - [40.788099, -119.201500, 314, 324] # The Temple (NE ~70px — calibrate!)
+  - [40.788099, -119.201500, 272, 368] # The Temple (~45px NE — calibrate!)
 
 # Approximate feet per degree of latitude (used for GPS→feet conversion)
 feet_per_degree: 364000
