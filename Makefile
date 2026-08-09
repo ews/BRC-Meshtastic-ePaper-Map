@@ -26,6 +26,9 @@ install: venv
 test: venv install  ## Run in --debug --screen mode (no hardware needed)
 	$(VENV_PYTHON) display_map.py --debug --screen
 
+calibrate: venv install  ## Launch web-based calibration tool (http://localhost:8050)
+	$(VENV_PYTHON) calibrate.py
+
 run: test  ## Alias for test
 
 # ─── clean ─────────────────────────────────────────────────────
