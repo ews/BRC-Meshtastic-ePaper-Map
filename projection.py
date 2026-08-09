@@ -60,18 +60,18 @@ class MapProjection:
         self._scale = dist_px / dist_ft  # px/ft
 
         # Rotation: angle from geographic (north-up) to pixel (screen-y-down)
-        angle_geo = math.atan2(dy_ft, dx_ft)          # geographic bearing
-        angle_px = math.atan2(-dy_px, dx_px)           # pixel bearing (y inverted)
+        angle_geo = math.atan2(dy_ft, dx_ft)  # geographic bearing
+        angle_px = math.atan2(-dy_px, dx_px)  # pixel bearing (y inverted)
         self._rotation = angle_px - angle_geo
 
         # Precompute the 2×2 matrix:  [dx_px] = M * [dx_ft; dy_ft]
         # After rotation, negate y because PIL's y-axis points down
         c = self._scale * math.cos(self._rotation)
         s = self._scale * math.sin(self._rotation)
-        self._m00 = c    # maps dx_ft → dx_px
-        self._m01 = -s   # maps dy_ft → dx_px
-        self._m10 = -s   # maps dx_ft → dy_px  (negated for PIL y-down)
-        self._m11 = -c   # maps dy_ft → dy_px  (negated for PIL y-down)
+        self._m00 = c  # maps dx_ft → dx_px
+        self._m01 = -s  # maps dy_ft → dx_px
+        self._m10 = -s  # maps dx_ft → dy_px  (negated for PIL y-down)
+        self._m11 = -c  # maps dy_ft → dy_px  (negated for PIL y-down)
 
     @property
     def scale_px_per_ft(self) -> float:
@@ -127,7 +127,7 @@ class MapProjection:
             f"MapProjection ({len(self._anchors)} anchors)",
             f"  origin GPS:  ({lat0:.6f}, {lon0:.6f})",
             f"  origin px:   ({px0:.0f}, {py0:.0f})",
-            f"  scale:       {self._scale:.6f} px/ft  ({1/self._scale:.1f} ft/px)",
+            f"  scale:       {self._scale:.6f} px/ft  ({1 / self._scale:.1f} ft/px)",
             f"  rotation:    {self.rotation_deg:.2f}°",
         ]
         for i, (lat, lon, px, py) in enumerate(self._anchors):

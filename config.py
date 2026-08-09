@@ -80,9 +80,7 @@ else:
 # Legacy derived values kept for display_map.py debug drawings
 # These will be gradually phased out in favor of projection.gps_to_pixel()
 city_radius_ft = distance_man_esplanade + sum(DISTANCE_STREETS)
-logging.debug(
-    "distances %s %s", distance_man_to_end_trashfence_ft, city_radius_ft
-)
+logging.debug("distances %s %s", distance_man_to_end_trashfence_ft, city_radius_ft)
 
 # Bounding box (used only by legacy gps_to_image_coordinates)
 import geopy

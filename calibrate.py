@@ -425,12 +425,29 @@ def build_page():
 
     # All test points for display — use short labels
     _short_names = {
-        "The Man": "man", "Temple": "temple", "Center Camp": "center",
-        "9:00 & G": "9G", "7:30 & G": "730G", "4:30 & G": "430G", "3:00 & G": "3G", "6:00 & G": "6G",
-        "9:00 & B": "9B", "7:30 & B": "730B", "4:30 & B": "430B", "3:00 & B": "3B", "2:00 & B": "2B", "10:00 & B": "10B",
-        "pt1 (fence)": "pt1", "pt2 (fence)": "pt2", "pt3 (fence)": "pt3", "pt4 (fence)": "pt4", "pt5 (fence)": "pt5",
+        "The Man": "man",
+        "Temple": "temple",
+        "Center Camp": "center",
+        "9:00 & G": "9G",
+        "7:30 & G": "730G",
+        "4:30 & G": "430G",
+        "3:00 & G": "3G",
+        "6:00 & G": "6G",
+        "9:00 & B": "9B",
+        "7:30 & B": "730B",
+        "4:30 & B": "430B",
+        "3:00 & B": "3B",
+        "2:00 & B": "2B",
+        "10:00 & B": "10B",
+        "pt1 (fence)": "pt1",
+        "pt2 (fence)": "pt2",
+        "pt3 (fence)": "pt3",
+        "pt4 (fence)": "pt4",
+        "pt5 (fence)": "pt5",
     }
-    test_points = [[lat, lon, _short_names.get(name, name[:6])] for lat, lon, name in all_landmarks]
+    test_points = [
+        [lat, lon, _short_names.get(name, name[:6])] for lat, lon, name in all_landmarks
+    ]
 
     # Trash fence pentagon vertices from GIS (10 points = 9 unique + closing)
     pent_points = [

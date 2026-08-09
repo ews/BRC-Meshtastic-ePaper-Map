@@ -19,8 +19,8 @@ image_position: [6, 400]
 # The second defines scale and rotation (pick a well-separated point like Temple or a G plaza).
 # All pixel coordinates are relative to the SCREEN (not the map image).
 anchors:
-  - [40.783247, -119.207884, 240, 516]    # The Man
-  - [40.788099, -119.201500, 240, 414]    # The Temple (2500ft NE of Man)
+  - [40.783247, -119.207884, 240, 516] # The Man
+  - [40.788099, -119.201500, 240, 414] # The Temple (2500ft NE of Man)
   # You can add more anchors for verification (they don't change the transform)
   # - [40.777372, -119.215612, 240, 639]  # Center Camp
   # - [40.792611, -119.220207, 43, 516]   # 9:00 & G Plaza
