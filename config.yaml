@@ -28,7 +28,7 @@ brc_noon: 1.5
 
 # --- Coordinate Conversion ---
 # Rotation angle for GPS → screen pixel mapping (degrees)
-rotation_angle: -45
+rotation_angle: 0
 
 # City angle for GPS → BRC clock+street address (degrees)
 city_angle: 45
