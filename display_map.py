@@ -142,6 +142,23 @@ def _init_epd():
 def main(args):
     black_layer, red_layer, draw_black, draw_red = _load_map()
 
+    # Friend filtering
+    friend_store = None
+    friend_srv = None
+    if not args.no_friends:
+        from friend_server import FriendServer
+        from friend_store import FriendStore
+
+        friend_store = FriendStore(c.friends_file)
+        logging.info(
+            "loaded %d friends from %s", friend_store.count(), c.friends_file
+        )
+        friend_srv = FriendServer(friend_store, port=c.friend_server_port)
+        friend_srv.start()
+        logging.info(
+            "friend server at http://0.0.0.0:%d", c.friend_server_port
+        )
+
     epd = None
     if not args.screen:
         epd = _init_epd()
@@ -149,6 +166,8 @@ def main(args):
     interface = None
     if not args.debug:
         interface = connect_mesh_serial()
+        if friend_srv is not None:
+            friend_srv.set_mesh(interface)
 
     old_coords = {}
 
@@ -170,6 +189,22 @@ def main(args):
                 mesh = get_mesh_info(interface)
                 burners = add_bm_coordinates(mesh)
 
+                # Filter to friends only
+                if friend_store is not None:
+                    friend_ids = friend_store.get_friend_ids()
+                    burners = {
+                        name: data
+                        for name, data in burners.items()
+                        if data.get("node_id") in friend_ids
+                    }
+                    # Update last_seen for displayed friends
+                    for data in burners.values():
+                        friend_store.update_last_seen(data["node_id"])
+                    friend_store.flush_last_seen()
+                    logging.debug(
+                        "showing %d/%d friends", len(burners), len(friend_ids)
+                    )
+
                 if burners:
                     with open(c.log_file, "a") as f:
                         for name, data in burners.items():
@@ -190,9 +225,7 @@ def main(args):
             if args.screen:
                 black_layer.show()
             elif epd is not None:
-                epd.display(
-                    epd.getbuffer(black_layer), epd.getbuffer(red_layer)
-                )
+                epd.display(epd.getbuffer(black_layer), epd.getbuffer(red_layer))
 
             logging.debug("sleeping %ds", c.sleep_seconds)
             time.sleep(c.sleep_seconds)
@@ -221,6 +254,11 @@ if __name__ == "__main__":
         "--calibrate",
         action="store_true",
         help="print detailed GPS→pixel conversion for each test point",
+    )
+    parser.add_argument(
+        "--no-friends",
+        action="store_true",
+        help="show all mesh nodes (disable friend filtering)",
     )
 
     args = parser.parse_args()

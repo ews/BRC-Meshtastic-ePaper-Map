@@ -51,6 +51,10 @@ brc:
 # Minimum distance (feet) a node must move to trigger a screen refresh
 min_distance_refresh_ft: 50
 
+# --- Friend Filtering ---
+friends_file: "friends.json"
+friend_server_port: 8051
+
 # --- Logging ---
 log_file: "burners.log"
 

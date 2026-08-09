@@ -62,6 +62,10 @@ STREET_DISTANCE = 0.002
 min_distance_refresh_ft = float(_cfg["min_distance_refresh_ft"])
 log_file = _cfg["log_file"]
 
+# Friend filtering
+friends_file = _cfg.get("friends_file", "friends.json")
+friend_server_port = int(_cfg.get("friend_server_port", 8051))
+
 # --- Points of Interest ---
 POINTS_OF_INTEREST = _cfg.get("points_of_interest", {})
 POI_RADIUS_FT = int(_cfg.get("poi_radius_ft", 50))

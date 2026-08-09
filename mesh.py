@@ -33,9 +33,7 @@ def connect_serial():
             logging.info("connected")
             return iface
         except Exception as e:
-            logging.warning(
-                "mesh connection failed: %s — retrying in %ds", e, delay
-            )
+            logging.warning("mesh connection failed: %s — retrying in %ds", e, delay)
             time.sleep(delay)
             delay = min(delay * _RETRY_FACTOR, _RETRY_MAX_SEC)
 
@@ -67,9 +65,7 @@ def get_mesh_info(interface):
         try:
             return interface.nodes.items()
         except Exception as e:
-            logging.warning(
-                "mesh poll failed: %s — retrying in %ds", e, delay
-            )
+            logging.warning("mesh poll failed: %s — retrying in %ds", e, delay)
             time.sleep(delay)
             delay = min(delay * _RETRY_FACTOR, _RETRY_MAX_SEC)
 
@@ -81,13 +77,14 @@ def add_bm_coordinates(burners):
     and 'image_coordinates' for each node that has a GPS position.
     """
     output = {}
-    for _nodename, data in burners:
-        logging.debug("processing node %s", _nodename)
+    for node_id, data in burners:
+        logging.debug("processing node %s", node_id)
         logging.debug("%s", data)
         username = data["user"]["longName"]
 
         if "coordinates" in data and "latitude" in data["coordinates"]:
             output[username] = {}
+            output[username]["node_id"] = node_id
             output[username]["coordinates"] = data["coordinates"]
 
             lat = output[username]["coordinates"]["latitude"]
@@ -97,9 +94,7 @@ def add_bm_coordinates(burners):
             output[username]["image_coordinates"] = gps_to_image_coordinates(
                 (lat, lon, username)
             )
-            logging.debug(
-                "image coordinates %s", output[username]["image_coordinates"]
-            )
+            logging.debug("image coordinates %s", output[username]["image_coordinates"])
         else:
             logging.info("no position for %s %s", username, data)
 
