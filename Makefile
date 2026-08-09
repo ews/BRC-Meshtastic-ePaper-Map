@@ -26,9 +26,16 @@ $(_VENV_FLAG):
 	$(VENV_PIP) install --upgrade pip setuptools wheel
 	@touch $(_VENV_FLAG)
 
-# ── install for Raspberry Pi (includes RPi.GPIO + spidev) ──────
-install-pi: $(_VENV_FLAG)  ## install with Pi-specific hardware deps
-	$(VENV_PIP) install -e ".[dev,pi]"
+# ── install for Raspberry Pi (uses system RPi.GPIO + spidev) ──
+install-pi:  ## install with system Pi packages (avoids compiling from source)
+	@echo "🔧 Creating virtual environment with system packages..."
+	$(PYTHON) -m venv $(VENV) --system-site-packages
+	$(VENV_PIP) install --upgrade pip setuptools wheel
+	$(VENV_PIP) install -e ".[dev]"
+	@echo ""
+	@echo "✅ Installed! System RPi.GPIO and spidev are available."
+	@echo "   Run 'make test-screen' to verify ePaper connection."
+	@echo ""
 
 # ── test / run ─────────────────────────────────────────────────
 test: install  ## run in --debug --screen mode (no hardware needed)
