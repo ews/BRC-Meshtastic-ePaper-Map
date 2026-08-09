@@ -1,88 +1,79 @@
-import math, re
-import config as c
-import geopy
+"""Coordinate conversions between GPS, Burning Man addresses, and screen pixels."""
+
+import math
+
 from geopy.distance import geodesic as GD
-import math, numpy as np
+
+import config as c
+
 logging = c.logging
+
+# --- Bounds for sanity checking ---
+# BRC is roughly within 1° of The Man
+_MAX_DEGREES_FROM_MAN = 1.0
 
 
 def distance_ft(a, b):
+    """Distance in feet between two (lat, lon) tuples."""
     return GD(a, b).ft
 
 
-#get angle
-def get_bearing_ang(lat1,lon1,lat2,lon2):
-    dLon = lon2 - lon1;
-    y = math.sin(dLon) * math.cos(lat2);
-    x = math.cos(lat1)*math.sin(lat2) - math.sin(lat1)*math.cos(lat2)*math.cos(dLon);
-    brng = np.rad2deg(math.atan2(y, x));
-    if brng < 0:
-        brng+= 360
-    return brng
+def _bearing_deg(lat1, lon1, lat2, lon2):
+    """Compass bearing from point 1 to point 2, in degrees (0–360)."""
+    d_lon = math.radians(lon2 - lon1)
+    lat1_r = math.radians(lat1)
+    lat2_r = math.radians(lat2)
 
-def get_bearing_rad(lat1, long1, lat2, long2):
-    dLon = (long2 - long1)
+    x = math.sin(d_lon) * math.cos(lat2_r)
+    y = math.cos(lat1_r) * math.sin(lat2_r) - math.sin(lat1_r) * math.cos(
+        lat2_r
+    ) * math.cos(d_lon)
 
-    y = math.sin(dLon) * math.cos(lat2)
-    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dLon)
+    bearing = math.degrees(math.atan2(x, y))
+    return (bearing + 360) % 360
 
-    brng = math.atan2(y, x)
-    return brng
 
-#angle between 2 points, which is used for the coords -> hour:mins calculation
-def calculate_initial_compass_bearing(lat_from, long_from, lat_to, long_to):
+def _validate_coords(lat, lon):
+    """Check that coordinates are plausible (near BRC)."""
+    if abs(lat - c.MAN_LAT) > _MAX_DEGREES_FROM_MAN:
+        logging.warning(
+            "latitude %.6f is far from BRC center (%.6f)", lat, c.MAN_LAT
+        )
+    if abs(lon - c.MAN_LONG) > _MAX_DEGREES_FROM_MAN:
+        logging.warning(
+            "longitude %.6f is far from BRC center (%.6f)", lon, c.MAN_LONG
+        )
 
-#    if (type(start) != tuple) or (type(end) != tuple):
-#        raise TypeError("Only tuples are supported as arguments")
-    start = (lat_from, long_from)
-    end = (lat_to, long_to)
 
-    lat1 = math.radians(start[0])
-    lat2 = math.radians(end[0])
+def gps_to_burning_man(lat, lon):
+    """Convert GPS coordinates to a Burning Man address string.
 
-    diffLong = math.radians(end[1] - start[1])
+    Returns e.g. "09:30 + Esplanade" or "12:00 + Temple" for known POIs.
+    """
 
-    x = math.sin(diffLong) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1)
-                                           * math.cos(lat2) * math.cos(diffLong))
+    _validate_coords(lat, lon)
 
-    initial_bearing = math.atan2(x, y)
+    distance = GD((c.MAN_LAT, c.MAN_LONG), (lat, lon)).feet
 
-    # Now we have the initial bearing but math.atan2 return values
-    # from -180° to + 180° which is not what we want for a compass bearing
-    # The solution is to normalize the initial bearing as shown below
-    initial_bearing = math.degrees(initial_bearing)
-    compass_bearing = (initial_bearing + 360) % 360
+    # Check known POIs first
+    for name, info in c.POINTS_OF_INTEREST.items():
+        expected_dist = float(info["distance_from_man_ft"])
+        if abs(distance - expected_dist) < c.POI_RADIUS_FT:
+            return info.get("clock", "") + " + " + name
 
-    return compass_bearing
+    angle_deg = _bearing_deg(c.MAN_LAT, c.MAN_LONG, lat, lon)
+    angle_rad = math.radians(angle_deg)
 
-#lat/long -> hours:minutes + street OR distance
-#TODO : minutes has a zero when <10
-#TODO : show open playa / center of the city
-#TODO : show camp name ? using
-def gps_to_burning_man(lat, long, city_angle=45):
-
-    #put known camp as name -> hour, distance from man
-    #TODO move this to config / their own file
-    #TODO the man is a special case, if distance < 100 ft you are at the man
-    known_camps = {'Temple': ['12:00', 2500], 'The Man': ['12:00', 0]}
-    camp_radius = 50 #feet if you are in that distance from camp, show camp name
-
-    RAD_TO_HOUR = (6.0/3.14159);
-
-    distance = GD((c.MAN_LAT, c.MAN_LONG), (lat, long)).feet
-
-    angle_deg = calculate_initial_compass_bearing(c.MAN_LAT, c.MAN_LONG, lat, long)
-    angle = angle_deg * (3.1415/180)
-
-    bearing_to_man = angle * RAD_TO_HOUR
-    bearing_to_man += 12.0 - c.BRC_NOON;
-    if (bearing_to_man > 12.0):
-        bearing_to_man -= 12.0;
+    # Convert bearing to clock face
+    rad_to_hour = 6.0 / math.pi
+    bearing_to_man = angle_rad * rad_to_hour
+    bearing_to_man += 12.0 - c.BRC_NOON
+    if bearing_to_man > 12.0:
+        bearing_to_man -= 12.0
 
     clock_hour = int(bearing_to_man)
-    clock_minutes = int((bearing_to_man - int(bearing_to_man))*60.0)
-    if(clock_hour == 0):
+    clock_minutes = int((bearing_to_man - int(bearing_to_man)) * 60.0)
+    if clock_hour == 0:
         clock_hour = 12
 
     # Convert distance to street name
@@ -94,96 +85,89 @@ def gps_to_burning_man(lat, long, city_angle=45):
             break
         remaining_distance -= street_distance
     else:
-        # If we've exhausted all the street distances, we're beyond the last street.
-        # Represent this as a distance from the Man in feet.
-        street_name = '{:.0f}ft'.format(distance)
+        street_name = f"{distance:.0f}ft"
 
-    #make them strings
-    if clock_hour < 10:
-        str_clock_hour = "0" + str(clock_hour)
-    else:
-        str_clock_hour = str(clock_hour)
+    # Format time string
+    str_clock_hour = f"{clock_hour:02d}"
+    str_clock_minutes = f"{clock_minutes:02d}"
 
-    if clock_minutes < 10:
-        str_clock_minutes = "0" + str(clock_minutes)
-    else:
-        str_clock_minutes = str(clock_minutes)
+    return f"{str_clock_hour}:{str_clock_minutes} + {street_name}"
 
 
-    return (str_clock_hour + ":" + str_clock_minutes + " + " + street_name)
+def gps_to_image_coordinates(coord):
+    """Convert (lat, lon, name) to (x, y) pixel coordinates on the screen.
 
-def gps_to_image_coordinates(coord, rotation_angle=-45):
-    man_position_screen = c.man_svg  # coordinates of the man in pixels
-    left_position = c.left_limit
-    right_position = c.right_limit
-    top_position = c.twelve_limit
-    bottom_position = c.bottom_limit
+    Uses the rotation angle from config to match BRC's grid orientation.
+    """
 
-    # Convert GPS to normalized coordinates
     latitude = coord[0]
     longitude = coord[1]
     point_name = coord[2]
 
+    _validate_coords(latitude, longitude)
+
+    # Normalize GPS to [0, 1] range
     x_norm = (longitude - c.lon_min) / (c.lon_max - c.lon_min)
     y_norm = (c.lat_max - latitude) / (c.lat_max - c.lat_min)
 
-    # Convert normalized coordinates to pixel coordinates
-    x = left_position + x_norm * (right_position - left_position)
-    y = top_position + y_norm * (bottom_position - top_position)  # use height for y-coordinate
+    # Convert to pixel coordinates
+    x = c.left_limit + x_norm * (c.right_limit - c.left_limit)
+    y = c.top_limit + y_norm * (c.bottom_limit - c.top_limit)
 
-    # Calculate distance from man
-    dx = x - man_position_screen[0]
-    dy = y - man_position_screen[1]
-    print ('dx dy', point_name, dx, dy)
+    # Rotate around The Man
+    dx = x - c.man_svg[0]
+    dy = y - c.man_svg[1]
 
-    # Rotate coordinates
-    rotation_angle = math.radians(rotation_angle)  # Convert to radians
-    dx_rot = dx * math.cos(rotation_angle) - dy * math.sin(rotation_angle)
-    dy_rot = dx * math.sin(rotation_angle) + dy * math.cos(rotation_angle)
+    logging.debug("dx dy %s %s %s", point_name, dx, dy)
 
-    # Translate back to original position
-    x_rot = man_position_screen[0] + dx_rot
-    y_rot = man_position_screen[1] + dy_rot
+    angle_rad = math.radians(c.ROTATION_ANGLE)
+    dx_rot = dx * math.cos(angle_rad) - dy * math.sin(angle_rad)
+    dy_rot = dx * math.sin(angle_rad) + dy * math.cos(angle_rad)
 
-    # Clamp to screen size and return as a tuple of integers
-    x_clamped = max(0, min(right_position, int(x_rot)))  # clamping to the limit of map position in pixels
-    y_clamped = max(0, min(bottom_position, int(y_rot)))
+    # Translate back
+    x_rot = c.man_svg[0] + dx_rot
+    y_rot = c.man_svg[1] + dy_rot
+
+    # Clamp to screen map area
+    x_clamped = max(0, min(c.right_limit, int(x_rot)))
+    y_clamped = max(0, min(c.bottom_limit, int(y_rot)))
 
     return (x_clamped, y_clamped)
 
 
-
-# bm coordinates ['9:30', 'a']-> lat/lon
 def burning_man_to_gps(coordinates, shift_deg=0):
-    # Parse input coordinates
+    """Convert a Burning Man address (clock, street) back to GPS coordinates.
+
+    Args:
+        coordinates: (clock_time_str, street_name_str) e.g. ("9:30", "A")
+        shift_deg: optional angular shift in degrees
+
+    Returns:
+        (lat, lon) tuple
+    """
     clock_time, street_name = coordinates
-    clock_time = [int(i) for i in clock_time.split(':')]
+    clock_time = [int(i) for i in clock_time.split(":")]
 
-    # Convert clock time to angle in degrees. Adjusting for the layout of Burning Man.
-    #angle_deg = (-(clock_time[0]*60 + clock_time[1]) + 180 + shift_deg) % 360
-    #angle_rad = math.radians(angle_deg)
-
-    # Convert clock time to angle in degrees
-    # Angle increases in clockwise direction, so subtract from 180
-    # Normalize to range -180 to 180
-    angle_deg = ((clock_time[0]*60 + clock_time[1]) + shift_deg)
+    angle_deg = (clock_time[0] * 60 + clock_time[1]) + shift_deg
     if angle_deg > 180:
         angle_deg -= 180
     angle_rad = math.radians(angle_deg)
 
     # Determine distance from Man in feet
-    if isinstance(street_name, int):
-        distance_feet = int(street_name)
-    elif street_name.isdigit():
+    if isinstance(street_name, int) or street_name.isdigit():
         distance_feet = int(street_name)
     else:
-        distance_feet = c.distance_man_esplanade + sum(c.DISTANCE_STREETS[:c.STREET_NAMES.index(street_name)])
+        distance_feet = c.distance_man_esplanade + sum(
+            c.DISTANCE_STREETS[: c.STREET_NAMES.index(street_name)]
+        )
 
     # Convert distance from feet to degrees
     distance_deg = distance_feet / c.FEET_PER_DEGREE
 
     # Calculate GPS coordinates
     lat = c.MAN_LAT + distance_deg * math.cos(angle_rad)
-    long = c.MAN_LONG + distance_deg * math.sin(angle_rad)
+    lon = c.MAN_LONG + distance_deg * math.sin(angle_rad)
 
-    return lat, long
+    _validate_coords(lat, lon)
+
+    return lat, lon

@@ -1,0 +1,68 @@
+# BRC Meshtastic ePaper Map — User Configuration
+# Edit this file, not config.py
+
+# --- Display ---
+display:
+  width: 480
+  height: 800
+
+# --- Polling ---
+sleep_seconds: 60
+
+# --- Map Center (The Man coordinates) ---
+man_lat: 40.783242
+man_long: -119.207871
+
+# --- BRC City Geometry (in feet) ---
+distance_man_esplanade: 2500
+distance_man_to_end_trashfence_ft: 8479
+
+# Street widths from Esplanade outward (Esplanade, A, B, C, D, E, F, G, H, I, J, K)
+distance_streets: [400, 250, 250, 250, 250, 250, 450, 250, 250, 250, 150, 150]
+
+# Street name letters (Esplanade + A through this letter)
+street_last_letter: "K"
+
+# BRC noon offset — the city grid is rotated; noon on the clock face is not at 12:00
+brc_noon: 1.5
+
+# --- Coordinate Conversion ---
+# Rotation angle for GPS → screen pixel mapping (degrees)
+rotation_angle: -45
+
+# City angle for GPS → BRC clock+street address (degrees)
+city_angle: 45
+
+# Approximate feet per degree of latitude
+feet_per_degree: 364000
+
+# --- Map Image Positioning ---
+# Position of the map image within the screen (x, y)
+image_position: [6, 400]
+
+# Pixel coordinates of The Man on the map image
+man_svg: [240, 516]
+
+# Pixel radii for the city on the map image
+svg_city_esplanade_radius_pixel: 98
+svg_city_radius_pixel: 230
+
+# --- Behavior ---
+# Minimum distance (feet) a node must move to trigger a screen refresh
+min_distance_refresh_ft: 50
+
+# --- Logging ---
+log_file: "burners.log"
+
+# --- Points of Interest ---
+# Known camps/locations displayed by name instead of clock+street
+points_of_interest:
+  Temple:
+    clock: "12:00"
+    distance_from_man_ft: 2500
+  "The Man":
+    clock: "12:00"
+    distance_from_man_ft: 0
+
+# Radius (feet) within which a node is identified as being at a POI
+poi_radius_ft: 50
