@@ -6,175 +6,151 @@ All known runtime bugs fixed and committed.
 
 | # | Bug | File | Severity | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `MAN_LAT = 40.783242,` — trailing comma makes it a tuple, silently breaking all geopy distance calculations | `config.py` | Critical | ✅ Fixed |
-| 2 | `new[burgner]` typo → `NameError` at runtime | `display_map.py` | Critical | ✅ Fixed |
-| 3 | `distance_ft()` called with latitude twice instead of `(lat, lon)` for new point | `display_map.py` | High | ✅ Fixed |
-| 4 | `[(c.man_svg[0], 0), (c.man_svg[0]), c.HEIGHT-10]` — malformed tuple, syntax error | `display_map.py` | Critical | ✅ Fixed |
-| 5 | README references `draw_map.py` but filename is `display_map.py` | `README.org` | Low | ✅ Fixed |
-| 6 | `burners_log.write(burner)` writes dict key, not structured data; global fd never flushed/closed | `config.py` + `display_map.py` | High | ✅ Fixed |
-| 7 | `equal_bm_coordinates` misses node join/leave — only checks movement of known nodes | `display_map.py` | Medium | ✅ Fixed |
-| 8 | Red drawing layer never cleared each iteration → label/dot accumulation (ghosting) | `display_map.py` | Medium | ✅ Fixed |
-| 9 | `interface.close()` dead code after infinite `while True`; no `KeyboardInterrupt` handling | `display_map.py` | Medium | ✅ Fixed |
+| 1 | `MAN_LAT = 40.783242,` — trailing comma makes it a tuple | `config.py` | Critical | ✅ |
+| 2 | `new[burgner]` typo → `NameError` | `display_map.py` | Critical | ✅ |
+| 3 | `distance_ft()` called with latitude twice | `display_map.py` | High | ✅ |
+| 4 | Malformed tuple in `shape_man_vertical` | `display_map.py` | Critical | ✅ |
+| 5 | README references wrong filename | `README.org` | Low | ✅ |
+| 6 | Global fd never flushed/closed | `config.py` + `display_map.py` | High | ✅ |
+| 7 | `equal_bm_coordinates` misses node join/leave | `display_map.py` | Medium | ✅ |
+| 8 | Red layer never cleared → ghosting | `display_map.py` | Medium | ✅ |
+| 9 | `interface.close()` dead code, no graceful shutdown | `display_map.py` | Medium | ✅ |
 
 ---
 
-## Phase 2: Architecture & Robustness
+## Phase 2: Architecture & Robustness ✅ (completed)
 
-### 2.1 Connection resilience
+### 2.1 Connection resilience ✅
 
-- **Problem**: If the serial/TCP Meshtastic connection drops, the script crashes. No reconnect logic.
-- **Fix**: Wrap `get_mesh_info(interface)` in a retry loop with exponential backoff. On disconnect, attempt reconnection before failing.
+- Added `connect_mesh_serial()` / `connect_mesh_tcp()` with exponential backoff (5s→120s, 2× factor)
+- `get_mesh_info()` retries on transient poll failures
 
-### 2.2 Configuration file
+### 2.2 Configuration file ✅
 
-- **Problem**: All configuration is in `config.py` as executable Python code. Users must edit code to set coordinates.
-- **Fix**: Extract user-configurable values (coordinates, display options, street distances, BRC noon angle) into a `config.yaml` or `config.toml` file. Load it at startup. Keep derived values in `config.py`.
+- Created `config.yaml` with all user-editable settings
+- `config.py` loads YAML, casts types, derives computed values
 
-### 2.3 Hardcoded 45° rotation
+### 2.3 Hardcoded rotation ✅
 
-- **Problem**: BRC's city grid orientation shifts slightly year-to-year. The 45° rotation is hardcoded in `gps_to_image_coordinates` and `gps_to_burning_man`.
-- **Fix**: Make `rotation_angle` and `city_angle` top-level config parameters.
+- Made `rotation_angle` configurable in `config.yaml`
+- Set to `0` after discovering map image is geographic north-up
 
-### 2.4 Error handling in coordinate conversion
+### 2.4 Error handling ✅
 
-- **Problem**: `gps_to_burning_man` and `gps_to_image_coordinates` have no input validation. Invalid GPS values could produce nonsensical screen coordinates.
-- **Fix**: Add bounds checking. Return `None` or raise a clear error for coordinates outside BRC's plausible area.
-
----
-
-## Phase 3: Logic Fixes
-
-### 3.1 Bounding box is wrong for a rotated pentagon
-
-- **Problem**: `gps_to_image_coordinates` derives its bounding box from `lat_min`/`lat_max`/`lon_min`/`lon_max` which are calculated assuming the city is a perfect circle aligned N/S/E/W. BRC is a pentagon rotated 45°, so the AABB is incorrect.
-- **Fix**: Calculate the true bounding box of the pentagon (or at least use a tighter bounding box based on the actual city footprint).
-
-### 3.2 Street name lookup edge case
-
-- **Problem**: When a node is between two streets (e.g., between Esplanade and A), the current `for/else` logic assigns it to the first street whose distance exceeds the remaining distance. This means the node is assigned to the *outer* street, not the nearest one.
-- **Fix**: After finding the matching street, check whether the remaining distance to that street or the distance past it is smaller, and pick the closer street.
-
-### 3.3 Duplicate bearing functions
-
-- **Problem**: `get_bearing_ang`, `get_bearing_rad`, and `calculate_initial_compass_bearing` in `coordinates.py` are near-duplicates.
-- **Fix**: Consolidate into a single `bearing()` function. Use `math.pi` instead of hardcoded approximations (`3.14159`, `3.1415`).
+- Added `_validate_coords()` with 1° bounds check
+- Consolidated 3 duplicate bearing functions into `_bearing_deg()` using `math.pi`
+- Replaced all `print()` with `logging.debug()`/`info()`
 
 ---
 
-## Phase 4: Feature Additions
+## Phase 3: Logic Fixes ✅ (completed)
 
-### 4.1 Battery and signal indicators
+### 3.1 Bounding box replaced ✅
 
-- **Data available**: Meshtastic node dict includes `batteryLevel`, `voltage`, `snr`, `rssi`.
-- **Implementation**: Show small battery icon or signal bars next to each node label. Grey out nodes with critically low battery.
+- Entirely replaced bounding-box approach with `MapProjection` anchor-point system
+- Similarity transform from 2+ GPS→pixel anchor pairs
+- Works for any screen size — just update anchor pixel positions
 
-### 4.2 Stale node handling
+### 3.2 GPS data integration ✅
 
-- **Problem**: Nodes that go offline stay on the map indefinitely.
-- **Implementation**: Track `lastSeen` timestamp per node. Grey out or remove nodes not heard from in N minutes (configurable).
+- Replaced all hardcoded test coordinates with official 2026 GIS data
+- 19 landmarks from `cpns.geojson` and `trash_fence.geojson`
+- The Man, Temple, Center Camp, all G-street and B-street plazas, pentagon vertices
 
-### 4.3 Position history / trails
+### 3.3 Duplicate bearing functions ✅
 
-- **Implementation**: Log positions to a SQLite database. Optionally render the last N positions as a faint trail behind each node. Could replay movement over time.
-
-### 4.4 Configurable POI database
-
-- **Problem**: Only Temple and The Man are known landmarks (`known_camps` dict in `gps_to_burning_man`).
-- **Implementation**: Load named points of interest from a JSON/YAML file. Display camp names when a node is within `camp_radius` feet.
-
-### 4.5 Web dashboard
-
-- **Implementation**: Run a lightweight HTTP server (Flask or aiohttp) on the Raspberry Pi. Serve a real-time HTML page with current node positions, last seen times, signal strength. Would be accessible via phone while on-playa without needing the ePaper screen.
-
-### 4.6 Text message display
-
-- **Data available**: Meshtastic supports text messaging between nodes.
-- **Implementation**: Display the last received text message from each node in a scrolling ticker at the bottom of the ePaper screen.
-
-### 4.7 Multiple map layers
-
-- **Implementation**: Support switching between day/night map images, or between different year layouts. Could auto-switch based on time of day.
-
-### 4.8 Automatic timezone / BRC noon adjustment
-
-- **Problem**: `BRC_NOON` is hardcoded to `1.5` (1.5 hours offset). Burning Man's official clock is Pacific Time, but the city grid's angular offset may change.
-- **Implementation**: Make BRC noon a configurable float. Optionally auto-detect from GPS location + timezone.
+- Consolidated into single `_bearing_deg()` using `math.pi`
 
 ---
 
-## Phase 5: Code Quality & Testing
+## Phase 4: Calibration Tool ✅ (completed — not in original plan)
 
-### 5.1 Unit tests
+### calibrate.py — web-based calibration ✅
 
-- **Priority targets**:
-  - `gps_to_burning_man()` — known inputs → expected outputs
-  - `gps_to_image_coordinates()` — GPS → pixel coordinate correctness
-  - `burning_man_to_gps()` — round-trip conversion
-  - `distance_ft()` — known lat/lon pairs → expected distances
-  - `equal_bm_coordinates()` — movement threshold logic
-- **Framework**: pytest
+- HTTP server at `localhost:8050`
+- Simulates full e-ink screen (480×800) with map, pentagon, test points
+- Click to set anchor pixel positions in screen coordinates
+- Live projection computation in JavaScript
+- Download config.yaml with updated anchors
+- 19 landmarks selectable as anchors
 
-### 5.2 Separation of concerns
+### MapProjection (`projection.py`) ✅
 
-- **Current**: `display_map.py` handles Meshtastic polling, coordinate conversion, rendering, and ePaper hardware in one 300-line file.
+- Similarity transform from 2+ anchor points
+- `gps_to_pixel()` and `pixel_to_gps()` methods
+- `dump()` for diagnostic output
+
+### Makefile ✅
+
+- `make test` — venv, install, run in debug+screen mode
+- `make calibrate` — launch calibration web server
+- Laptop-safe `requirements-dev.txt` (no RPi.GPIO/spidev)
+
+---
+
+## Phase 5: Code Quality & Split Display Map
+
+### 5.1 Split display_map.py into modules
+
+- **Current**: `display_map.py` handles Meshtastic polling, coordinate conversion, rendering, hardware in one ~400-line file.
 - **Target**:
   - `mesh.py` — Meshtastic connection, polling, node data extraction
   - `renderer.py` — PIL drawing logic (dots, pentagon, labels, lines)
-  - `display.py` — ePaper hardware driver (or screen output)
   - `display_map.py` — main loop orchestrator only
 
-### 5.3 Dead code removal
+### 5.2 Dead code removal
 
-- `burning_man_to_gps()` — imported in `display_map.py` but never called
-- `get_bearing_ang()` and `get_bearing_rad()` — never called externally (only used internally? verify)
-- `fontawesome` import — removed from requirements if not needed (it was imported but never used)
-- `cairosvg`, `CairoSVG`, `pillow-svg` — the SVG rendering path appears unused (map is loaded as PNG)
+- Clean up unused imports (`fontawesome`, `cairosvg`, etc.)
+- Remove `burning_man_to_gps()` if unused
+- Remove legacy config values no longer needed
+
+### 5.3 Unit tests
+
+- `projection.py` — anchor computation, GPS↔pixel round-trip
+- `coordinates.py` — BRC address formatting, bearing math
+- Framework: pytest
 
 ### 5.4 Logging improvements
 
-- **Problem**: `print()` is used alongside `logging` for debug output.
-- **Fix**: Replace all `print()` calls with `logging.debug()` or `logging.info()`. Use structured logging for node position data.
-
-### 5.5 Type hints
-
-- Add type annotations to all public functions for better IDE support and catching bugs early.
+- Structured logging for node position data
+- Configurable log levels
 
 ---
 
-## Phase 6: Hardware & Deployment
+## Phase 6: Feature Additions
 
-### 6.1 systemd service
+### 6.1 Battery and signal indicators
 
-- Create a `.service` file so the script starts on boot and restarts on crash.
-- Example: `/etc/systemd/system/brc-meshtastic-map.service`
+- Show battery level, RSSI/SNR from Meshtastic telemetry
 
-### 6.2 Health check
+### 6.2 Stale node handling
 
-- Add a watchdog timer — if no nodes have been heard from in N minutes, display a warning on the ePaper ("No mesh activity").
-- Optionally blink an LED or trigger a buzzer for critical failures.
+- Grey out / remove nodes not heard from in N minutes
 
-### 6.3 Power optimization
+### 6.3 Position history
 
-- ePaper only needs power during refresh. Consider deeper sleep between poll cycles on battery power.
-- Profile power usage on a Raspberry Pi Zero vs Pi 4.
+- Log positions to SQLite, render last N positions as trail
+
+### 6.4 Web dashboard
+
+- Lightweight HTTP status page for phone access on-playa
 
 ---
 
-## Phase 7: Documentation
+## Phase 7: Hardware & Deployment
 
-### 7.1 Hardware setup guide
+### 7.1 systemd service
 
-- Step-by-step photos/instructions for connecting the WaveShare ePaper HAT to a Raspberry Pi.
-- Wiring diagram for SPI connection.
-- Enclosure/case recommendations for desert conditions (dust, heat).
+### 7.2 Health check / watchdog
 
-### 7.2 User configuration guide
+### 7.3 Power optimization
 
-- How to edit `config.yaml` (after Phase 2.2).
-- How to find GPS coordinates for a new location.
-- How to calibrate the map (finding pixel coordinates for The Man on a new map image).
+---
 
-### 7.3 Troubleshooting
+## Phase 8: Documentation
 
-- Common errors and solutions (serial port permissions, SPI not enabled, Meshtastic device not found).
-- How to use `--debug` mode to verify coordinate mapping.
+### 8.1 Hardware setup guide
+
+### 8.2 Configuration guide
+
+### 8.3 Troubleshooting
