@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+debug.log
+burners.log
+requirements-laptop.txt
+*.egg-info/
+dist/
+build/
