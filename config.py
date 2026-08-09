@@ -33,9 +33,7 @@ MAN_LONG = float(_cfg["man_long"])
 
 # --- BRC geometry ---
 distance_man_esplanade = float(_cfg["distance_man_esplanade"])
-distance_man_to_end_trashfence_ft = float(
-    _cfg["distance_man_to_end_trashfence_ft"]
-)
+distance_man_to_end_trashfence_ft = float(_cfg["distance_man_to_end_trashfence_ft"])
 DISTANCE_STREETS = _cfg["distance_streets"]
 STREET_LAST_LETTER = _cfg["street_last_letter"]
 STREET_NAMES = ["Esplanade"] + [
@@ -88,9 +86,7 @@ centercamp_svg = (man_svg[0], man_svg[1] + svg_city_esplanade_radius_pixel)
 
 # geopy bounding box
 city_radius_ft = distance_man_esplanade + np.sum(DISTANCE_STREETS)
-logging.debug(
-    "distances %s %s", distance_man_to_end_trashfence_ft, city_radius_ft
-)
+logging.debug("distances %s %s", distance_man_to_end_trashfence_ft, city_radius_ft)
 center = geopy.Point(MAN_LAT, MAN_LONG)
 
 top_trash_fence = geopy.distance.distance(

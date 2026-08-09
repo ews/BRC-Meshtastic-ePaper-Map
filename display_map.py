@@ -218,9 +218,18 @@ def run_demo_coordinates(draw, calibrate=False):
         if calibrate:
             logging.info(
                 "CALIB %6s | GPS=(%.6f,%.6f) | BRC=%s | pixel=(%d,%d) | screen=%s",
-                name, lat, lon, addr, px[0], px[1],
-                "in" if (c.left_limit <= px[0] <= c.right_limit
-                          and c.twelve_limit <= px[1] <= c.bottom_limit) else "OFF"
+                name,
+                lat,
+                lon,
+                addr,
+                px[0],
+                px[1],
+                "in"
+                if (
+                    c.left_limit <= px[0] <= c.right_limit
+                    and c.twelve_limit <= px[1] <= c.bottom_limit
+                )
+                else "OFF",
             )
 
         draw.text(px, name, font=font12_regular, fill=fill)
@@ -357,7 +366,9 @@ def main(args):
                 draw_red.line(shape_man_horiz, fill=fill, width=0)
                 draw_red.line(shape_man_vertical, fill=fill, width=0)
 
-                draw_Himage = run_demo_coordinates(draw_Himage, calibrate=args.calibrate)
+                draw_Himage = run_demo_coordinates(
+                    draw_Himage, calibrate=args.calibrate
+                )
             else:
                 # clear drawing layers each iteration
                 draw_red = ImageDraw.Draw(red)
