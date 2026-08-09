@@ -56,7 +56,8 @@ BRC-Meshtastic-ePaper-Map/
 ├── friend_server.py      # REST API + web UI for friend management (port 8051)
 │
 ├── calibrate.py          # Web calibration tool (port 8050)
-├── Makefile              # venv, make test, make calibrate
+├── Makefile              # npm-style: make install, make test, make calibrate
+├── pyproject.toml        # Package metadata, deps, tool config (package.json equivalent)
 │
 ├── tests/
 │   └── test_projection.py # 9 unit tests for MapProjection
@@ -109,22 +110,18 @@ the anchor pairs. No hardcoded bounding boxes, angles, or radii.
 
 ## Quick Start (laptop test)
 
-No ePaper or Meshtastic radio needed:
+No ePaper or Meshtastic radio needed. Works like `npm install`:
 
 ```bash
 cd BRC-Meshtastic-ePaper-Map
-make test
+make install   # creates .venv, installs package in editable mode
+make test      # runs display in --debug --screen mode
 ```
 
-This creates a Python venv, installs dependencies, and runs the display in
-`--debug --screen` mode. A window opens showing the BRC map with test point
-labels.
-
-Other make targets:
+A window opens showing the BRC map with test point labels. See all targets:
 
 ```bash
-make calibrate  # Web calibration tool → http://localhost:8050
-make clean      # Remove venv and caches
+make help
 ```
 
 ---
@@ -299,15 +296,40 @@ Access it from your phone at `http://<pi-ip>:8051`.
 
 ## Development
 
+### Makefile reference
+
+```bash
+make install       # create venv + pip install -e .[dev]  (like npm install)
+make install-pi    # same but with RPi.GPIO + spidev for Raspberry Pi
+make test          # run display in --debug --screen mode
+make calibrate     # launch calibration tool → http://localhost:8050
+make pytest        # run unit tests
+make clean         # remove venv, caches, build artifacts
+make help          # show all targets
+```
+
+### Project packaging
+
+`pyproject.toml` is the Python equivalent of `package.json`. It defines:
+
+- Project name, version, description
+- Dependencies with relaxed version pins
+- `[dev]` extras: pytest
+- `[pi]` extras: RPi.GPIO, spidev
+- Ruff formatter and pytest config
+
+The `-e` flag in `pip install -e .` installs in **editable mode** — changes
+to `.py` files take effect immediately, no reinstall needed.
+
 ### Running tests
 
 ```bash
-.venv/bin/pip install pytest
-.venv/bin/pytest tests/ -v
+make pytest       # or: .venv/bin/pytest tests/ -v
 ```
 
-9 tests covering MapProjection: identity, scale, rotation, round-trip,
-anchor reproduction, input validation.
+9 tests covering MapProjection: identity, scale, rotation (north-up,
+east-right), round-trip accuracy, anchor reproduction, input validation,
+and diagnostic output.
 
 ### Code style
 
