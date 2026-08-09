@@ -44,10 +44,18 @@ def main():
         help="Output PNG file",
     )
     parser.add_argument(
-        "-W", "--width", type=int, default=screen_w, help=f"Target width (default: {screen_w})"
+        "-W",
+        "--width",
+        type=int,
+        default=screen_w,
+        help=f"Target width (default: {screen_w})",
     )
     parser.add_argument(
-        "-H", "--height", type=int, default=screen_h, help=f"Target height (default: {screen_h})"
+        "-H",
+        "--height",
+        type=int,
+        default=screen_h,
+        help=f"Target height (default: {screen_h})",
     )
     args = parser.parse_args()
 
@@ -58,16 +66,13 @@ def main():
 
     # Fit within target size maintaining aspect ratio
     scale = min(args.width / orig_w, args.height / orig_h)
-    new_w = int(orig_w * scale)
-    new_h = int(orig_h * scale)
+    new_w = round(orig_w * scale)
+    new_h = round(orig_h * scale)
 
     # Resize using NEAREST for 1-bit images (preserves sharp edges)
-    try:
-        from PIL.Image import Resampling
+    from PIL.Image import Resampling
 
-        resample = Resampling.NEAREST if mode == "1" else Resampling.LANCZOS
-    except ImportError:
-        resample = Image.NEAREST if mode == "1" else Image.LANCZOS
+    resample = Resampling.NEAREST if mode == "1" else Resampling.LANCZOS
     resized = img.resize((new_w, new_h), resample)
 
     # Ensure output is 1-bit
@@ -78,11 +83,12 @@ def main():
     print(f"Output: {args.output}  ({new_w}×{new_h}, {resized.mode})")
     print(f"Scale:  {scale:.3f}  ({orig_w}→{new_w}, {orig_h}→{new_h})")
 
-    # Suggest config updates
+    # Suggest config updates (bottom-aligned: map touches bottom of screen)
     print()
     print("Suggested config.yaml updates:")
-    print(f"  image_position: [{(args.width - new_w) // 2}, {(args.height - new_h) // 2}]")
-    print(f"  # map_file: {Path(args.output).name}  (if different from current)")
+    bottom_y = args.height - new_h
+    print(f"  image_position: [{(args.width - new_w) // 2}, {bottom_y}]")
+    print(f"  # map_file: \"{Path(args.output).name}\"  (if different from current)")
 
 
 if __name__ == "__main__":
