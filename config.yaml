@@ -10,8 +10,8 @@ display:
 sleep_seconds: 60
 
 # --- Map Center (The Man coordinates) ---
-man_lat: 40.783242
-man_long: -119.207871
+man_lat: 40.783247
+man_long: -119.207884
 
 # --- BRC City Geometry (in feet) ---
 distance_man_esplanade: 2500
@@ -60,6 +60,9 @@ points_of_interest:
   Temple:
     clock: "12:00"
     distance_from_man_ft: 2500
+  "Center Camp":
+    clock: "6:00"
+    distance_from_man_ft: 3027
   "The Man":
     clock: "12:00"
     distance_from_man_ft: 0

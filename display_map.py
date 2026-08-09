@@ -182,29 +182,50 @@ def show_mesh_info(burners, draw_black, draw_red):
 
 # demo / test
 #
-def run_demo_coordinates(black):
-    # test_coords = [[c.MAN_LAT, c.MAN_LONG, 'man']]
-    test_coords = [
-        [40.7933127, -119.2110380, "9b"],
-        [40.7870292, -119.2144870, "730b"],
-        [40.7918738, -119.1963410, "TT"],
-        [c.MAN_LAT, c.MAN_LONG, "man"],
-        [40.782814, -119.233566, "p1"],
-        [40.807028, -119.217274, "p2"],
-        [40.802722, -119.181931, "p3"],
-        [40.775857, -119.176407, "p4"],
-        [40.763558, -119.208301, "p5"],
-    ]
-    # test_coords = [[40.7918738, -119.1963410, 'temple']]
+# --- test coordinates from official 2026 GIS data ---
+# Source: /home/ews/sources/innovate-GIS-data/2026/GeoJSON/
+_TEST_COORDS = [
+    # The Man (cpns.geojson FID 33)
+    [40.783247, -119.207884, "man"],
+    # The Temple (cpns.geojson FID 34)
+    [40.788099, -119.201500, "temple"],
+    # Center Camp (cpns.geojson FID 31)
+    [40.777372, -119.215612, "center"],
+    # 9:00 & G Plaza
+    [40.792611, -119.220207, "9G"],
+    # 7:30 & G Plaza
+    [40.783245, -119.225308, "730G"],
+    # 4:30 & G Plaza
+    [40.770004, -119.207883, "430G"],
+    # 3:00 & G Plaza
+    [40.773883, -119.195565, "3G"],
+    # Trash fence pentagram vertices (trash_fence.geojson)
+    [40.779710, -119.237418, "pt1"],
+    [40.803521, -119.221408, "pt2"],
+    [40.799288, -119.186672, "pt3"],
+    [40.772884, -119.181240, "pt4"],
+    [40.760788, -119.212582, "pt5"],
+]
 
+
+def run_demo_coordinates(draw, calibrate=False):
     font12_regular = ImageFont.truetype("./media/Font.ttc", 12)
 
-    for coordinates in test_coords:
-        logging.debug("coord %s", coordinates)
-        image_coordinates = gps_to_image_coordinates(coordinates)
-        black.text(image_coordinates, coordinates[2], font=font12_regular, fill=fill)
+    for lat, lon, name in _TEST_COORDS:
+        addr = gps_to_burning_man(lat, lon)
+        px = gps_to_image_coordinates((lat, lon, name))
 
-    return black
+        if calibrate:
+            logging.info(
+                "CALIB %6s | GPS=(%.6f,%.6f) | BRC=%s | pixel=(%d,%d) | screen=%s",
+                name, lat, lon, addr, px[0], px[1],
+                "in" if (c.left_limit <= px[0] <= c.right_limit
+                          and c.twelve_limit <= px[1] <= c.bottom_limit) else "OFF"
+            )
+
+        draw.text(px, name, font=font12_regular, fill=fill)
+
+    return draw
 
 
 # are the points moving far enough to trigger redraw?
@@ -336,7 +357,7 @@ def main(args):
                 draw_red.line(shape_man_horiz, fill=fill, width=0)
                 draw_red.line(shape_man_vertical, fill=fill, width=0)
 
-                draw_Himage = run_demo_coordinates(draw_Himage)
+                draw_Himage = run_demo_coordinates(draw_Himage, calibrate=args.calibrate)
             else:
                 # clear drawing layers each iteration
                 draw_red = ImageDraw.Draw(red)
@@ -391,6 +412,12 @@ if __name__ == "__main__":
         "--screen",
         action="store_true",
         help="display it in a screen rather than eink",
+    )
+    parser.add_argument(
+        "-c",
+        "--calibrate",
+        action="store_true",
+        help="print detailed coordinate conversion for each test point",
     )
 
     args = parser.parse_args()
