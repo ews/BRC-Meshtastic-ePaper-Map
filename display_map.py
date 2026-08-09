@@ -90,9 +90,7 @@ def connect_mesh_serial():
             logging.info("connected")
             return iface
         except Exception as e:
-            logging.warning(
-                "mesh connection failed: %s — retrying in %ds", e, delay
-            )
+            logging.warning("mesh connection failed: %s — retrying in %ds", e, delay)
             time.sleep(delay)
             delay = min(delay * _MESH_RETRY_FACTOR, _MESH_RETRY_MAX_SEC)
 
@@ -121,9 +119,7 @@ def get_mesh_info(interface):
         try:
             return interface.nodes.items()
         except Exception as e:
-            logging.warning(
-                "mesh poll failed: %s — retrying in %ds", e, delay
-            )
+            logging.warning("mesh poll failed: %s — retrying in %ds", e, delay)
             time.sleep(delay)
             delay = min(delay * _MESH_RETRY_FACTOR, _MESH_RETRY_MAX_SEC)
 
@@ -300,8 +296,8 @@ def main(args):
                 # lat/lon min and max
                 min_coords = (c.lat_min, c.lon_min, "min")
                 trash_coords = (
-                    c.top_trash_fence.longitude,
                     c.top_trash_fence.latitude,
+                    c.top_trash_fence.longitude,
                     "max",
                 )
                 min_coords_svg = gps_to_image_coordinates(min_coords)

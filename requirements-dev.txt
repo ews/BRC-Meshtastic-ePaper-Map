@@ -1,0 +1,23 @@
+# Dev/laptop requirements — relaxed versions for modern Python
+# Generated from requirements.txt but with Pi-only packages removed
+# and version pins loosened for compatibility.
+
+cairocffi>=1.6.0
+CairoSVG>=2.7.0
+cffi>=1.15.1
+cssselect2>=0.7.0
+defusedxml>=0.7.1
+dotmap>=1.3.30
+fontawesome>=5.10.1
+geographiclib>=2.0
+geopy>=2.3.0
+meshtastic>=2.1.8
+numpy>=1.25.0
+Pillow>=8.4.0
+protobuf>=4.23.0
+pygatt>=4.0.5
+PyQRCode>=1.2.1
+pyserial>=3.5
+PyYAML>=6.0
+requests>=2.31.0
+tabulate>=0.9.0

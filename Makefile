@@ -19,13 +19,8 @@ $(VENV)/bin/activate:
 	$(VENV_PIP) install --upgrade pip setuptools wheel
 
 # ─── install dependencies ──────────────────────────────────────
-install: venv requirements-laptop.txt
-	$(VENV_PIP) install -r requirements-laptop.txt
-
-# Generate a laptop-safe requirements file (drops Pi-only packages)
-requirements-laptop.txt: requirements.txt
-	@grep -vE '^(RPi\.GPIO|spidev|waveshare)' $< > $@
-	@echo "✨ Generated $@ (RPi.GPIO, spidev removed)"
+install: venv
+	$(VENV_PIP) install -r requirements-dev.txt
 
 # ─── test / run ────────────────────────────────────────────────
 test: venv install  ## Run in --debug --screen mode (no hardware needed)
@@ -35,7 +30,7 @@ run: test  ## Alias for test
 
 # ─── clean ─────────────────────────────────────────────────────
 clean:  ## Remove venv, caches, and generated files
-	rm -rf $(VENV) requirements-laptop.txt
+	rm -rf $(VENV)
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name '*.pyc' -delete 2>/dev/null || true
 
