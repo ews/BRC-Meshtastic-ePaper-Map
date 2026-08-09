@@ -1,16 +1,16 @@
-import io
-import cairosvg
+import argparse
+import math
+import time
+from datetime import datetime
+
 import meshtastic
 import meshtastic.serial_interface
 import meshtastic.tcp_interface
-import fontawesome as fa
-from PIL import Image, ImageDraw, ImageFont, ImageOps
-import time
-from datetime import datetime
-from coordinates import gps_to_burning_man, gps_to_image_coordinates, burning_man_to_gps, distance_ft
+from PIL import Image, ImageDraw, ImageFont
+
 import config as c
-import math
-import argparse
+from coordinates import distance_ft, gps_to_burning_man, gps_to_image_coordinates
+
 logging = c.logging
 
 fill = 0
@@ -96,7 +96,6 @@ def add_bm_coordinates(burners):
 
 def show_mesh_info(burners, draw_black, draw_red):
 
-    font12 = ImageFont.truetype('./media/fontawesome-regular.ttf', 24)
     font12_regular = ImageFont.truetype('./media/Font.ttc', 12)
 
 
@@ -137,7 +136,6 @@ def run_demo_coordinates(black):
                    ]
     #test_coords = [[40.7918738, -119.1963410, 'temple']]
 
-    font12 = ImageFont.truetype('./media/fontawesome-regular.ttf', 24)
     font12_regular = ImageFont.truetype('./media/Font.ttc', 12)
 
     for coordinates in test_coords:
@@ -147,36 +145,29 @@ def run_demo_coordinates(black):
 
     return(black)
 
-#works and passes
-def run_demo_coords_to_streets():
-    for coord in test_coords:
-        print(gps_to_burning_man(coord[0], coord[1]))
 
-
-#    run_demo_coords_to_streets()
 
 #are the points moving far enough to trigger redraw?
 def equal_bm_coordinates(new, old):
-    similar = 1
-    for burner in new.keys():
-        if not burner in old:
+    # detect added or removed nodes
+    if set(new.keys()) != set(old.keys()):
+        logging.debug("nodes joined or left")
+        return False
 
-            logging.debug("new entry")
-            similar = 0
-            break
+    for burner in new:
         if 'position' in new[burner] and 'latitude' in new[burner]['coordinates']:
-            if distance_ft((new[burgner]['coordinates']['latitude'], new[burner]['coordinates']['latitude']),(old[burner]['coordinates']['latitude'], old[burner]['coordinates']['longitude'])) < c.min_distance_refresh_ft:
+            if distance_ft((new[burner]['coordinates']['latitude'], new[burner]['coordinates']['longitude']),
+                           (old[burner]['coordinates']['latitude'], old[burner]['coordinates']['longitude'])) < c.min_distance_refresh_ft:
+                logging.debug("moved less than threshold, still similar")
+            else:
                 logging.debug("we have moved")
-                similar = 0
-                break
+                return False
         else:
             logging.debug("no position %s", new)
-            logging.debug("*****")
-            similar = 0
-            break
+            return False
 
-    logging.debug('returning similar %s', similar)
-    return(similar)
+    logging.debug('returning similar True')
+    return True
 
 def main(args):
 
@@ -197,6 +188,7 @@ def main(args):
     draw_red = ImageDraw.Draw(red)
     draw_red = draw_upward_pentagon(draw_red, center=c.man_svg, radius=c.svg_city_man_to_trashfence_pixel)
 
+    epd = None
     if not args.screen :
 
         #TODO remove this because we dont want to load the lib at every refresh
@@ -207,82 +199,99 @@ def main(args):
 #        epd.Clear()
 #
 
+    interface = None
     if not args.debug:
         #get info from mesh
         #interface = meshtastic.tcp_interface.TCPInterface('192.168.0.188')
         interface = meshtastic.serial_interface.SerialInterface()
-        old_coords = {}
 
-    while True:
+    old_coords = {}
 
-        if(args.debug):
+    try:
+        while True:
 
-            draw_dot(draw_red, c.man_svg)
-            draw_dot(draw_red, c.temple_svg)
-            draw_dot(draw_red, c.centercamp_svg)
+            if(args.debug):
 
-            #lat/lon min and max
-            min_coords = ( c.lat_min, c.lon_min, 'min')
-            trash_coords = ( c.top_trash_fence.longitude, c.top_trash_fence.latitude, 'max')
-            min_coords_svg= gps_to_image_coordinates(min_coords)
-            trash_coords_svg= gps_to_image_coordinates(trash_coords)
-            twelve_coords_svg= gps_to_image_coordinates((c.lat_max, c.lon_max, '12'))
+                # clear drawing layers each iteration
+                draw_Himage = ImageDraw.Draw(Himage)
+                draw_red = ImageDraw.Draw(red)
+                draw_red = draw_upward_pentagon(draw_red, center=c.man_svg, radius=c.svg_city_man_to_trashfence_pixel)
 
-            draw_dot(draw_red, min_coords_svg)
-            draw_dot(draw_red, trash_coords_svg)
-            draw_dot(draw_red, twelve_coords_svg)
-            logging.debug('max %s %s', twelve_coords_svg, trash_coords_svg)
+                draw_dot(draw_red, c.man_svg)
+                draw_dot(draw_red, c.temple_svg)
+                draw_dot(draw_red, c.centercamp_svg)
 
-            draw_dot(draw_red, (c.lat_min, c.lon_min))
-            draw_dot(draw_red, (c.lat_max, c.lon_max))
+                #lat/lon min and max
+                min_coords = ( c.lat_min, c.lon_min, 'min')
+                trash_coords = ( c.top_trash_fence.longitude, c.top_trash_fence.latitude, 'max')
+                min_coords_svg= gps_to_image_coordinates(min_coords)
+                trash_coords_svg= gps_to_image_coordinates(trash_coords)
+                twelve_coords_svg= gps_to_image_coordinates((c.lat_max, c.lon_max, '12'))
 
-            #make a line between max and min, it should pass through the center
-            shape_max_min = [trash_coords_svg, min_coords_svg]
-            draw_red.line(shape_max_min, fill=fill, width = 0)
+                draw_dot(draw_red, min_coords_svg)
+                draw_dot(draw_red, trash_coords_svg)
+                draw_dot(draw_red, twelve_coords_svg)
+                logging.debug('max %s %s', twelve_coords_svg, trash_coords_svg)
 
-            #display lines to know we got the coordinates right
-            shape_left = [(c.left_limit, 0), (c.left_limit, c.HEIGHT - 10)]
-            shape_right = [(c.right_limit, 0), (c.right_limit, c.HEIGHT- 10)]
-            shape_fence= [(0, c.top_limit), (c.HEIGHT - 10, c.top_limit)]
-            shape_twelve= [(0, c.twelve_limit), (c.HEIGHT - 10, c.twelve_limit)]
-            shape_bottom = [(0, c.bottom_limit), (c.HEIGHT-10, c.bottom_limit)]
+                draw_dot(draw_red, (c.lat_min, c.lon_min))
+                draw_dot(draw_red, (c.lat_max, c.lon_max))
 
-            shape_man_horiz= [(0, c.man_svg[1]), (c.HEIGHT-10, c.man_svg[1])]
-            shape_man_vertical= [(c.man_svg[0], 0), (c.man_svg[0]), c.HEIGHT-10]
+                #make a line between max and min, it should pass through the center
+                shape_max_min = [trash_coords_svg, min_coords_svg]
+                draw_red.line(shape_max_min, fill=fill, width = 0)
 
-            draw_red.line(shape_left, fill=fill, width = 0)
-            draw_red.line(shape_right, fill=fill, width = 0)
-            draw_red.line(shape_fence, fill=fill, width = 0)
-            draw_red.line(shape_twelve, fill=fill, width = 0)
-            draw_red.line(shape_bottom, fill=fill, width = 0)
-            draw_red.line(shape_man_horiz, fill=fill, width = 0)
-            draw_red.line(shape_man_vertical, fill=fill, width = 0)
+                #display lines to know we got the coordinates right
+                shape_left = [(c.left_limit, 0), (c.left_limit, c.HEIGHT - 10)]
+                shape_right = [(c.right_limit, 0), (c.right_limit, c.HEIGHT- 10)]
+                shape_fence= [(0, c.top_limit), (c.HEIGHT - 10, c.top_limit)]
+                shape_twelve= [(0, c.twelve_limit), (c.HEIGHT - 10, c.twelve_limit)]
+                shape_bottom = [(0, c.bottom_limit), (c.HEIGHT-10, c.bottom_limit)]
 
-            draw_Himage = run_demo_coordinates(draw_Himage)
-        else:
+                shape_man_horiz= [(0, c.man_svg[1]), (c.HEIGHT-10, c.man_svg[1])]
+                shape_man_vertical= [(c.man_svg[0], 0), (c.man_svg[0], c.HEIGHT-10)]
 
-            mesh = get_mesh_info(interface)
-            burners = add_bm_coordinates(mesh)
-            #log burners movements
-            for burner in burners:
-                burners_log.write(burner)
-            #do we need to refresh the screen ?
-            if not equal_bm_coordinates(burners, old_coords):
-                old_coords = burners
-                (draw_Himage, draw_red) = show_mesh_info(burners, draw_Himage, draw_red)
+                draw_red.line(shape_left, fill=fill, width = 0)
+                draw_red.line(shape_right, fill=fill, width = 0)
+                draw_red.line(shape_fence, fill=fill, width = 0)
+                draw_red.line(shape_twelve, fill=fill, width = 0)
+                draw_red.line(shape_bottom, fill=fill, width = 0)
+                draw_red.line(shape_man_horiz, fill=fill, width = 0)
+                draw_red.line(shape_man_vertical, fill=fill, width = 0)
+
+                draw_Himage = run_demo_coordinates(draw_Himage)
             else:
-                logging.debug("points are not really moving")
 
-        if args.screen:
-            Himage.show()
-        else:
-            epd.display(epd.getbuffer(Himage),epd.getbuffer(red))
+                # clear drawing layers each iteration
+                draw_red = ImageDraw.Draw(red)
+                draw_red = draw_upward_pentagon(draw_red, center=c.man_svg, radius=c.svg_city_man_to_trashfence_pixel)
 
-        logging.debug("sleeping")
-        time.sleep(c.sleep_seconds)
+                mesh = get_mesh_info(interface)
+                burners = add_bm_coordinates(mesh)
+                #log burners movements
+                if burners:
+                    with open(c.log_file, 'a') as f:
+                        for burner_name, burner_data in burners.items():
+                            f.write(f"{datetime.now().isoformat()} {burner_name} {burner_data['coordinates']}\n")
+                            f.flush()
+                #do we need to refresh the screen ?
+                if not equal_bm_coordinates(burners, old_coords):
+                    old_coords = burners
+                    (draw_Himage, draw_red) = show_mesh_info(burners, draw_Himage, draw_red)
+                else:
+                    logging.debug("points are not really moving")
 
-    if not args.debug:
-        interface.close()
+            if args.screen:
+                Himage.show()
+            elif epd is not None:
+                epd.display(epd.getbuffer(Himage),epd.getbuffer(red))
+
+            logging.debug("sleeping")
+            time.sleep(c.sleep_seconds)
+
+    finally:
+        if interface is not None:
+            interface.close()
+        logging.info("shutdown complete")
 
 if __name__ == "__main__":
 

@@ -28,7 +28,7 @@ Debug mode can be activated in BRC Meshtastic Paper by appending the --debug fla
 To use it, run:
 
 #+begin_src bash
-python draw_map.py --debug
+python display_map.py --debug
 #+end_src
 
 ** Configuration

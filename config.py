@@ -1,9 +1,8 @@
-import numpy as np
+import logging
+
 import geopy
 import geopy.distance  #move this away
-from geopy.distance import geodesic as GD
-
-import logging
+import numpy as np
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,8 +21,8 @@ HEIGHT=800
 sleep_seconds = 60
 
 #golden spike
-MAN_LAT = 40.786400
-MAN_LONG = -119.203500
+MAN_LAT =  40.783242
+MAN_LONG = -119.207871
 
 
 STREET_DISTANCE = 0.002  # Replace with actual distance between streets
@@ -56,7 +55,6 @@ svg_city_radius_pixel = 230
 
 #save locations and movement to file
 log_file = 'burners.log'
-burners_log = open(log_file, "a")
 
 #derived values, don't change anything below this point
 svg_city_man_to_trashfence_pixel = (distance_man_to_end_trashfence_ft*svg_city_esplanade_radius_pixel)/distance_man_esplanade
