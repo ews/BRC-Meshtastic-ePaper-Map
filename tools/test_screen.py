@@ -14,11 +14,23 @@ from PIL import Image, ImageDraw
 
 
 def test_screen():
+    """Test the ePaper display. Requires Raspberry Pi with SPI enabled."""
+    print("Testing ePaper display (Raspberry Pi only)...")
+
+    import importlib.util
+
+    if importlib.util.find_spec("RPi.GPIO") is None:
+        print("ERROR: RPi.GPIO not found — this test only works on a Raspberry Pi.")
+        print("On your laptop, use: make test")
+        return
+
     from waveshare_epd import epd7in5_V2
 
     epd = epd7in5_V2.EPD()
-    print("Initializing ePaper...")
-    epd.init()
+    print("Initializing...")
+    if epd.init() != 0:
+        print("ERROR: ePaper init failed — check SPI connection and wiring.")
+        return
 
     # Clear screen
     print("Clearing screen...")
