@@ -39,6 +39,10 @@ calibrate: install  ## launch calibration tool → http://localhost:8050
 
 run: test  ## alias for test
 
+# ── ePaper hardware test (Raspberry Pi only) ──────────────────
+test-screen: install  ## clear ePaper and draw test pattern
+	$(VENV_PYTHON) tools/test_screen.py
+
 # ── tests ──────────────────────────────────────────────────────
 pytest: install  ## run unit tests
 	$(VENV_PYTHON) -m pytest tests/ -v
