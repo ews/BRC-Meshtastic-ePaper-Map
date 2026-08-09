@@ -64,10 +64,13 @@ def render_map():
     lon_min, lon_max = min(all_lons), max(all_lons)
 
     # Convert corners to feet
-    corners = [gps_to_ft(lat, lon) for lat, lon in zip(
-        [lat_min, lat_max, lat_max, lat_min],
-        [lon_min, lon_max, lon_min, lon_max],
-    )]
+    corners = [
+        gps_to_ft(lat, lon)
+        for lat, lon in zip(
+            [lat_min, lat_max, lat_max, lat_min],
+            [lon_min, lon_max, lon_min, lon_max],
+        )
+    ]
     xs = [c[0] for c in corners]
     ys = [c[1] for c in corners]
     x_min, x_max = min(xs), max(xs)
@@ -159,8 +162,10 @@ def render_map():
     # ── Save ────────────────────────────────────────────────────
     img.save(OUTPUT)
     print(f"Saved {OUTPUT} ({MAP_W}×{MAP_H})")
-    print(f"  Bounds: lat [{lat_min:.4f}, {lat_max:.4f}]  lon [{lon_min:.4f}, {lon_max:.4f}]")
-    print(f"  Scale: {1/scale:.0f} ft/px")
+    print(
+        f"  Bounds: lat [{lat_min:.4f}, {lat_max:.4f}]  lon [{lon_min:.4f}, {lon_max:.4f}]"
+    )
+    print(f"  Scale: {1 / scale:.0f} ft/px")
     print(f"  The Man at pixel: ({mx:.0f}, {my:.0f})")
 
 
