@@ -367,21 +367,70 @@ def build_page():
         sys.exit(1)
 
     anchors = cfg["anchors"]
-    anchor_names = ["The Man", "The Temple", "Center Camp", "9:00 & G", "3:00 & G"]
-    named_anchors = []
-    for i, a in enumerate(anchors):
-        name = anchor_names[i] if i < len(anchor_names) else f"anchor-{i}"
-        named_anchors.append(a + [name])
 
-    test_points = [
-        [40.783247, -119.207884, "man"],
-        [40.788099, -119.201500, "temple"],
-        [40.777372, -119.215612, "center"],
-        [40.792611, -119.220207, "9G"],
-        [40.783245, -119.225308, "730G"],
-        [40.770004, -119.207883, "430G"],
-        [40.773883, -119.195565, "3G"],
+    # All known landmarks from GIS data — GPS coords + names
+    # Default pixel positions computed from current projection (or 0 if unavailable)
+    all_landmarks = [
+        # Core
+        (40.783247, -119.207884, "The Man"),
+        (40.788099, -119.201500, "Temple"),
+        (40.777372, -119.215612, "Center Camp"),
+        # G Street plazas
+        (40.792611, -119.220207, "9:00 & G"),
+        (40.783245, -119.225308, "7:30 & G"),
+        (40.770004, -119.207883, "4:30 & G"),
+        (40.773883, -119.195565, "3:00 & G"),
+        (40.773880, -119.220203, "6:00 & G"),
+        # B Street plazas
+        (40.789487, -119.216094, "9:00 & B"),
+        (40.783246, -119.219494, "7:30 & B"),
+        (40.774423, -119.207883, "4:30 & B"),
+        (40.777008, -119.199675, "3:00 & B"),
+        (40.780628, -119.196796, "2:00 & B"),
+        (40.791676, -119.211330, "10:00 & B"),
+        # Trash fence pentagon vertices
+        (40.779710, -119.237418, "pt1 (fence)"),
+        (40.803521, -119.221408, "pt2 (fence)"),
+        (40.799288, -119.186672, "pt3 (fence)"),
+        (40.772884, -119.181240, "pt4 (fence)"),
+        (40.760788, -119.212582, "pt5 (fence)"),
     ]
+
+    # Compute default pixel positions using current projection module
+    try:
+        import config as c
+
+        _proj = c.projection
+        default_px = []
+        for lat, lon, name in all_landmarks:
+            px, py = _proj.gps_to_pixel(lat, lon)
+            default_px.append((int(round(px)), int(round(py))))
+    except Exception:
+        default_px = [(0, 0)] * len(all_landmarks)
+
+    # Build named anchors: if anchors exist in config, use those pixel values;
+    # otherwise use computed defaults
+    cfg_anchor_map = {}
+    for a in anchors:
+        # Match by GPS proximity (within ~0.001°)
+        for lat, lon, name in all_landmarks:
+            if abs(a[0] - lat) < 0.001 and abs(a[1] - lon) < 0.001:
+                cfg_anchor_map[name] = (int(a[2]), int(a[3]))
+                break
+
+    named_anchors = []
+    for (lat, lon, name), (dpx, dpy) in zip(all_landmarks, default_px):
+        px, py = cfg_anchor_map.get(name, (dpx, dpy))
+        named_anchors.append([lat, lon, px, py, name])
+
+    # All test points for display — use short labels
+    _short_names = {
+        "The Man": "man", "Temple": "temple", "Center Camp": "center",
+        "9:00 & G": "9G", "7:30 & G": "730G", "4:30 & G": "430G", "3:00 & G": "3G", "6:00 & G": "6G",
+        "9:00 & B": "9B", "7:30 & B": "730B", "4:30 & B": "430B", "3:00 & B": "3B", "2:00 & B": "2B", "10:00 & B": "10B",
+        "pt1 (fence)": "pt1", "pt2 (fence)": "pt2", "pt3 (fence)": "pt3", "pt4 (fence)": "pt4", "pt5 (fence)": "pt5",
+    }
+    test_points = [[lat, lon, _short_names.get(name, name[:6])] for lat, lon, name in all_landmarks]
 
     # Trash fence pentagon vertices from GIS (10 points = 9 unique + closing)
     pent_points = [
@@ -406,7 +455,9 @@ def build_page():
         PAGE.replace("__ANCHORS__", json.dumps(named_anchors))
         .replace("__TEST_POINTS__", json.dumps(test_points))
         .replace("__PENT_POINTS__", json.dumps(pent_points))
-        .replace("__TRASH_FENCE_FT__", str(cfg.get("distance_man_to_trashfence_ft", 8479)))
+        .replace(
+            "__TRASH_FENCE_FT__", str(cfg.get("distance_man_to_trashfence_ft", 8479))
+        )
         .replace("__SCREEN_W__", str(cfg["display"]["width"]))
         .replace("__SCREEN_H__", str(cfg["display"]["height"]))
         .replace("__IMAGE_X__", str(cfg["image_position"][0]))
