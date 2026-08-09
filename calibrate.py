@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibration web app — click on the map image to set anchor pixel positions.
+"""Calibration web app — simulates the e-ink screen with live GPS-to-pixel projection.
 
 Usage:
     python3 calibrate.py
@@ -15,329 +15,339 @@ sys.path.insert(0, str(ROOT))
 
 CONFIG_PATH = ROOT / "config.yaml"
 
-# ── embedded HTML ──────────────────────────────────────────────
 PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BRC Map Calibrator</title>
+<title>BRC ePaper Map Calibrator</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: monospace; background: #1a1a2e; color: #eee; display: flex; height: 100vh; }
   #sidebar { width: 380px; padding: 16px; overflow-y: auto; background: #16213e; border-right: 2px solid #0f3460; }
-  #sidebar h2 { margin-bottom: 12px; color: #e94560; }
-  #sidebar p { margin-bottom: 8px; font-size: 12px; color: #aaa; }
-  #main { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: auto; }
-  canvas { cursor: crosshair; image-rendering: pixelated; }
-  .section { margin-bottom: 16px; }
-  .section h3 { color: #f5c518; margin-bottom: 6px; font-size: 13px; }
-  .anchor-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
-  .anchor-row span { width: 80px; }
-  .anchor-row input { width: 60px; background: #0f3460; border: 1px solid #333; color: #eee; padding: 2px 6px; font-family: monospace; border-radius: 3px; }
+  #sidebar h2 { margin-bottom: 4px; color: #e94560; font-size: 15px; }
+  #sidebar .subtitle { font-size: 11px; color: #aaa; margin-bottom: 12px; }
+  #main { flex: 1; display: flex; align-items: center; justify-content: center; background: #111; overflow: auto; }
+  canvas { cursor: crosshair; border: 1px solid #333; }
+  .section { margin-bottom: 14px; }
+  .section h3 { color: #f5c518; margin-bottom: 4px; font-size: 12px; }
+  .anchor-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 11px; padding: 2px 4px; border-radius: 3px; }
+  .anchor-row:hover { background: #0f3460; }
+  .anchor-row span.name { width: 80px; cursor: pointer; }
+  .anchor-row span.gps { color: #888; font-size: 9px; width: 140px; }
+  .anchor-row input { width: 52px; background: #0f3460; border: 1px solid #444; color: #eee; padding: 2px 4px; font-family: monospace; font-size: 11px; border-radius: 3px; }
   .anchor-row input:focus { border-color: #e94560; outline: none; }
-  .anchor-row .gps { color: #888; font-size: 10px; }
-  button { background: #e94560; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px; margin: 4px 2px; }
+  button { background: #e94560; color: #fff; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 11px; margin: 2px 2px; }
   button:hover { background: #ff6b81; }
-  button.secondary { background: #0f3460; }
-  button.secondary:hover { background: #1a5276; }
+  button.green { background: #4ecca3; color: #000; }
+  button.green:hover { background: #6eecc3; }
+  button.dim { background: #0f3460; }
+  button.dim:hover { background: #1a5276; }
   #status { font-size: 11px; color: #4ecca3; margin-top: 8px; min-height: 16px; }
-  #info { font-size: 11px; color: #aaa; margin-top: 4px; }
-  #anchor-list { margin-top: 8px; }
-  .active { color: #e94560; font-weight: bold; }
-  .crosshair { position: absolute; pointer-events: none; }
+  #info { font-size: 10px; color: #888; margin-top: 4px; }
+  .active { background: #0f3460; border-radius: 3px; }
+  .set-badge { color: #4ecca3; font-size: 10px; }
+  .unset-badge { color: #e94560; font-size: 10px; }
+  select, input[type=number] { background: #0f3460; border: 1px solid #444; color: #eee; padding: 3px 6px; font-family: monospace; font-size: 11px; border-radius: 3px; }
 </style>
 </head>
 <body>
 <div id="sidebar">
-  <h2>🎯 BRC Map Calibrator</h2>
-  <p>Click on the map to set anchor positions. Click on different anchors below to select which one you're placing.</p>
+  <h2>🗺️ BRC ePaper Calibrator</h2>
+  <div class="subtitle">Simulates the exact e-ink screen layout</div>
 
   <div class="section">
-    <h3>1. Select anchor to place:</h3>
+    <h3>Screen</h3>
+    <label>Resolution: </label>
+    <input type="number" id="scrn-w" value="__SCREEN_W__" style="width:55px" onchange="resizeScreen()"> ×
+    <input type="number" id="scrn-h" value="__SCREEN_H__" style="width:55px" onchange="resizeScreen()">
+    <label style="margin-left:8px;">Map pos:</label>
+    <input type="number" id="img-x" value="__IMAGE_X__" style="width:50px" onchange="resizeScreen()">,
+    <input type="number" id="img-y" value="__IMAGE_Y__" style="width:50px" onchange="resizeScreen()">
+  </div>
+
+  <div class="section">
+    <h3>Anchors (click to select, then click map)</h3>
     <div id="anchor-list"></div>
+    <button onclick="clearAll()" class="dim">Clear All</button>
+    <button onclick="useDefaults()" class="dim">Reset Defaults</button>
   </div>
 
   <div class="section">
-    <h3>2. Controls:</h3>
-    <button onclick="clearAll()">Clear All</button>
-    <button onclick="useDefaults()" class="secondary">Reset Defaults</button>
-    <button onclick="downloadConfig()" style="background:#4ecca3;color:#000;">📥 Download config.yaml</button>
+    <h3>Projection</h3>
+    <div id="proj-info" style="font-size:10px;color:#f5c518;"></div>
   </div>
 
   <div class="section">
-    <h3>3. Projection:</h3>
-    <div id="proj-info" style="font-size:11px;"></div>
+    <h3>Test points on screen:</h3>
+    <div id="test-points" style="font-size:10px;"></div>
   </div>
 
-  <div class="section">
-    <h3>4. Verify — test points:</h3>
-    <div id="test-points" style="font-size:11px;"></div>
-  </div>
-
-  <div id="status">Click on the map to place the selected anchor →</div>
-  <div id="info">Map: LOADING... | Zoom: 100%</div>
+  <button onclick="downloadConfig()" class="green" style="width:100%;">📥 Download config.yaml</button>
+  <div id="status" style="margin-top:10px;">Click a landmark on the map →</div>
+  <div id="info">Map: __MAP_W__×__MAP_H__</div>
 </div>
 <div id="main">
-  <canvas id="map"></canvas>
+  <canvas id="screen"></canvas>
 </div>
 
 <script>
-// ── Data from server ──────────────────────────────────────────
 const MAP_URL = "/map.png";
 const ANCHORS = __ANCHORS__;
 const TEST_POINTS = __TEST_POINTS__;
-const SCREEN_W = __SCREEN_W__;
-const SCREEN_H = __SCREEN_H__;
-const IMAGE_X = __IMAGE_X__;
-const IMAGE_Y = __IMAGE_Y__;
+const PENT_POINTS = __PENT_POINTS__;
+const TRASH_FENCE_FT = __TRASH_FENCE_FT__;
 const FEET_PER_DEG = __FEET_PER_DEG__;
+const DEFAULT_SCREEN_W = __SCREEN_W__;
+const DEFAULT_SCREEN_H = __SCREEN_H__;
 
-// ── State ─────────────────────────────────────────────────────
+// State
 let selectedIdx = 0;
-let pixelCoords = ANCHORS.map(a => ({ x: a[2], y: a[3], set: a[2] > 0 || a[3] > 0 }));
+let pixelCoords = ANCHORS.map(a => ({ x: a[2], y: a[3], set: true }));
 let mapImg = null;
-let zoom = 1.0;
+let screenW = DEFAULT_SCREEN_W;
+let screenH = DEFAULT_SCREEN_H;
+let imgX = __IMAGE_X__;
+let imgY = __IMAGE_Y__;
 
-// ── DOM ───────────────────────────────────────────────────────
-const canvas = document.getElementById('map');
+const canvas = document.getElementById('screen');
 const ctx = canvas.getContext('2d');
-const statusEl = document.getElementById('status');
-const infoEl = document.getElementById('info');
-const anchorList = document.getElementById('anchor-list');
-const projInfo = document.getElementById('proj-info');
-const testDiv = document.getElementById('test-points');
 
-// ── Build anchor list UI ──────────────────────────────────────
-function buildAnchorUI() {
-  let html = '';
-  ANCHORS.forEach((a, i) => {
-    const name = a[4] || `anchor-${i}`;
-    const set = pixelCoords[i].set;
-    html += `<div class="anchor-row ${i === selectedIdx ? 'active' : ''}" onclick="selectAnchor(${i})" style="cursor:pointer;">
-      <span>${i === selectedIdx ? '▶' : '&nbsp;'} ${name}</span>
-      <span class="gps">(${a[0].toFixed(4)},${a[1].toFixed(4)})</span>
-      <input type="number" id="px-${i}" value="${set ? pixelCoords[i].x : ''}" placeholder="x" style="width:50px"
-        onclick="event.stopPropagation()" onchange="updatePixel(${i},'x',this.value)" />
-      <input type="number" id="py-${i}" value="${set ? pixelCoords[i].y : ''}" placeholder="y" style="width:50px"
-        onclick="event.stopPropagation()" onchange="updatePixel(${i},'y',this.value)" />
-      ${set ? '✓' : '⚠'}
-    </div>`;
-  });
-  anchorList.innerHTML = html;
-}
-
-function selectAnchor(i) {
-  selectedIdx = i;
-  buildAnchorUI();
-  statusEl.textContent = `Click on map to place "${ANCHORS[i][4]}" →`;
-  drawAll();
-}
-
-function updatePixel(i, axis, val) {
-  const v = parseInt(val) || 0;
-  if (axis === 'x') pixelCoords[i].x = v;
-  else pixelCoords[i].y = v;
-  pixelCoords[i].set = true;
+function resizeScreen() {
+  screenW = parseInt(document.getElementById('scrn-w').value) || 480;
+  screenH = parseInt(document.getElementById('scrn-h').value) || 800;
+  imgX = parseInt(document.getElementById('img-x').value) || 6;
+  imgY = parseInt(document.getElementById('img-y').value) || 400;
+  canvas.width = screenW;
+  canvas.height = screenH;
   drawAll();
   updateProjection();
 }
 
-// ── Map loading ───────────────────────────────────────────────
-function loadMap() {
-  mapImg = new Image();
-  mapImg.onload = () => {
-    canvas.width = mapImg.width;
-    canvas.height = mapImg.height;
-    infoEl.textContent = `Map: ${mapImg.width}×${mapImg.height} | Screen: ${SCREEN_W}×${SCREEN_H} | Image pos: (${IMAGE_X},${IMAGE_Y})`;
-    drawAll();
-  };
-  mapImg.src = MAP_URL;
-}
-
-// ── Drawing ───────────────────────────────────────────────────
-function drawAll() {
-  if (!mapImg) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(mapImg, 0, 0);
-
-  // Draw anchor markers
+// ── Anchors UI ────────────────────────────────────────────────
+function buildAnchorUI() {
+  let html = '';
   ANCHORS.forEach((a, i) => {
-    const px = pixelCoords[i];
-    if (!px.set) return;
-    const sx = px.x - IMAGE_X;
-    const sy = px.y - IMAGE_Y;
-    const isSelected = i === selectedIdx;
-
-    // Crosshair
-    ctx.strokeStyle = isSelected ? '#e94560' : '#4ecca3';
-    ctx.lineWidth = isSelected ? 2 : 1;
-    ctx.beginPath();
-    ctx.moveTo(sx - 15, sy); ctx.lineTo(sx + 15, sy);
-    ctx.moveTo(sx, sy - 15); ctx.lineTo(sx, sy + 15);
-    ctx.stroke();
-
-    // Circle
-    ctx.beginPath();
-    ctx.arc(sx, sy, isSelected ? 8 : 5, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Label
-    ctx.fillStyle = isSelected ? '#e94560' : '#4ecca3';
-    ctx.font = '12px monospace';
-    ctx.fillText(a[4] || `#${i}`, sx + 10, sy - 8);
+    const name = a[4] || `#${i}`;
+    const set = pixelCoords[i].set;
+    html += `<div class="anchor-row${i === selectedIdx ? ' active' : ''}" onclick="selectAnchor(${i})" style="cursor:pointer;">
+      <span class="name">${i === selectedIdx ? '▶' : ''} ${name}</span>
+      <span class="gps">${a[0].toFixed(5)},${a[1].toFixed(5)}</span>
+      <input id="px-${i}" value="${set ? pixelCoords[i].x : ''}" placeholder="x"
+        onclick="event.stopPropagation()" onchange="updatePixel(${i},'x',this.value)" />
+      <input id="py-${i}" value="${set ? pixelCoords[i].y : ''}" placeholder="y"
+        onclick="event.stopPropagation()" onchange="updatePixel(${i},'y',this.value)" />
+      <span class="${set ? 'set-badge' : 'unset-badge'}">${set ? '✓' : '?'}</span>
+    </div>`;
   });
-
-  // Draw test points if we have a valid projection
-  drawTestPoints();
+  document.getElementById('anchor-list').innerHTML = html;
 }
 
+function selectAnchor(i) { selectedIdx = i; buildAnchorUI(); drawAll(); }
+
+function updatePixel(i, axis, val) {
+  const v = parseInt(val) || 0;
+  if (axis === 'x') pixelCoords[i].x = v; else pixelCoords[i].y = v;
+  pixelCoords[i].set = true;
+  document.getElementById(`px-${i}`).value = pixelCoords[i].x;
+  document.getElementById(`py-${i}`).value = pixelCoords[i].y;
+  drawAll(); updateProjection();
+}
+
+// ── Projection math (matches projection.py) ────────────────────
 function projectGPS(lat, lon) {
-  // Simple client-side projection matching projection.py logic
-  // Requires at least 2 set anchors
   const setAnchors = ANCHORS.filter((_, i) => pixelCoords[i].set);
   if (setAnchors.length < 2) return null;
+  const a0 = setAnchors[0], a1 = setAnchors[1];
+  const i0 = ANCHORS.indexOf(a0), i1 = ANCHORS.indexOf(a1);
 
-  const a0 = setAnchors[0];
-  const a1 = setAnchors[1];
-  const i0 = ANCHORS.indexOf(a0);
-  const i1 = ANCHORS.indexOf(a1);
-
-  const lat0 = a0[0], lon0 = a0[1], px0 = pixelCoords[i0].x, py0 = pixelCoords[i0].y;
-  const lat1 = a1[0], lon1 = a1[1], px1 = pixelCoords[i1].x, py1 = pixelCoords[i1].y;
+  const lat0 = a0[0], lon0 = a0[1];
+  const px0 = pixelCoords[i0].x, py0 = pixelCoords[i0].y;
+  const px1 = pixelCoords[i1].x, py1 = pixelCoords[i1].y;
 
   const cosLat = Math.cos(lat0 * Math.PI / 180);
-  const dx_ft = (lon1 - lon0) * FEET_PER_DEG * cosLat;
-  const dy_ft = (lat1 - lat0) * FEET_PER_DEG;
-  const dx_px = px1 - px0;
-  const dy_px = py1 - py0;
+  const dx_ft = (a1[1] - lon0) * FEET_PER_DEG * cosLat;
+  const dy_ft = (a1[0] - lat0) * FEET_PER_DEG;
+  const dx_px = px1 - px0, dy_px = py1 - py0;
 
   const dist_ft = Math.hypot(dx_ft, dy_ft);
   const dist_px = Math.hypot(dx_px, dy_px);
   if (dist_ft < 1 || dist_px < 1) return null;
 
   const scale = dist_px / dist_ft;
-  const angle_geo = Math.atan2(dy_ft, dx_ft);
-  const angle_px = Math.atan2(-dy_px, dx_px);
-  const rot = angle_px - angle_geo;
+  const rot = Math.atan2(-dy_px, dx_px) - Math.atan2(dy_ft, dx_ft);
+  const c = scale * Math.cos(rot), s = scale * Math.sin(rot);
 
-  const c = scale * Math.cos(rot);
-  const s = scale * Math.sin(rot);
-
-  const dx_f = (lon - lon0) * FEET_PER_DEG * cosLat;
-  const dy_f = (lat - lat0) * FEET_PER_DEG;
+  const dxf = (lon - lon0) * FEET_PER_DEG * cosLat;
+  const dyf = (lat - lat0) * FEET_PER_DEG;
 
   return {
-    x: px0 + c * dx_f - s * dy_f,
-    y: py0 - s * dx_f - c * dy_f,
+    x: px0 + c * dxf - s * dyf,
+    y: py0 - s * dxf - c * dyf,
     scale, rot_deg: rot * 180 / Math.PI
   };
 }
 
-function drawTestPoints() {
-  const r = projectGPS(0, 0);
-  if (!r) return;
+// ── Drawing ───────────────────────────────────────────────────
+function drawAll() {
+  canvas.width = screenW;
+  canvas.height = screenH;
 
-  TEST_POINTS.forEach(tp => {
-    const p = projectGPS(tp[0], tp[1]);
-    if (!p) return;
-    const sx = p.x - IMAGE_X;
-    const sy = p.y - IMAGE_Y;
-    if (sx < 0 || sy < 0 || sx > canvas.width || sy > canvas.height) return;
+  // White background (simulating e-ink)
+  ctx.fillStyle = '#f8f8f0';
+  ctx.fillRect(0, 0, screenW, screenH);
 
-    ctx.fillStyle = '#f5c518';
-    ctx.font = '10px monospace';
-    ctx.fillText(tp[2], sx + 4, sy - 4);
+  // Map image
+  if (mapImg && mapImg.complete) {
+    ctx.drawImage(mapImg, imgX, imgY);
+  }
+
+  // Trash fence pentagon from projected corner points
+  drawPentagon();
+
+  // Anchor crosshairs
+  ANCHORS.forEach((a, i) => {
+    const px = pixelCoords[i];
+    if (!px.set) return;
+    const isSel = i === selectedIdx;
+    ctx.strokeStyle = isSel ? '#e94560' : '#4ecca3';
+    ctx.lineWidth = isSel ? 2 : 1;
     ctx.beginPath();
-    ctx.arc(sx, sy, 3, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(px.x - 14, px.y); ctx.lineTo(px.x + 14, px.y);
+    ctx.moveTo(px.x, px.y - 14); ctx.lineTo(px.x, px.y + 14);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(px.x, px.y, isSel ? 7 : 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = isSel ? '#e94560' : '#4ecca3';
+    ctx.font = '11px monospace';
+    ctx.fillText(a[4] || `#${i}`, px.x + 10, px.y - 7);
   });
+
+  // Test points (man, temple, center, plazas)
+  const r = projectGPS(0, 0);
+  if (r) {
+    TEST_POINTS.forEach(tp => {
+      const p = projectGPS(tp[0], tp[1]);
+      if (!p) return;
+      const onScreen = p.x >= 0 && p.x <= screenW && p.y >= 0 && p.y <= screenH;
+      if (!onScreen) return;
+      ctx.fillStyle = '#f5c518';
+      ctx.font = '10px monospace';
+      ctx.fillText(tp[2], p.x + 4, p.y - 4);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+    });
+  }
 }
 
+function drawPentagon() {
+  // Draw pentagon using projected trash fence points
+  if (PENT_POINTS.length < 3) return;
+  const pts = [];
+  PENT_POINTS.forEach(pp => {
+    const p = projectGPS(pp[0], pp[1]);
+    if (p) pts.push(p);
+  });
+  if (pts.length < 3) return;
+
+  // Dotted outline
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < pts.length; i++) {
+    const s = pts[i], e = pts[(i + 1) % pts.length];
+    const d = Math.hypot(e.x - s.x, e.y - s.y);
+    const n = Math.max(2, Math.floor(d / 4));
+    for (let j = 0; j < n; j++) {
+      const t = j / n;
+      const x = s.x + t * (e.x - s.x);
+      const y = s.y + t * (e.y - s.y);
+      ctx.beginPath();
+      ctx.moveTo(x, y); ctx.lineTo(x + 1, y);
+      ctx.stroke();
+    }
+  }
+}
+
+// ── Projection info ───────────────────────────────────────────
 function updateProjection() {
   const r = projectGPS(0, 0);
+  const el = document.getElementById('proj-info');
+  const tp = document.getElementById('test-points');
   if (!r) {
-    projInfo.innerHTML = 'Need 2+ anchors set';
-    testDiv.innerHTML = '';
+    el.innerHTML = 'Need ≥2 anchors set';
+    tp.innerHTML = '';
     return;
   }
-  projInfo.innerHTML = `Scale: ${(1/r.scale).toFixed(1)} ft/px &nbsp;|&nbsp; Rotation: ${r.rot_deg.toFixed(2)}°`;
+  el.innerHTML = `scale: ${(1/r.scale).toFixed(1)} ft/px &nbsp;|&nbsp; rot: ${r.rot_deg.toFixed(2)}° &nbsp;|&nbsp; origin: (${pixelCoords[0].x},${pixelCoords[0].y})`;
 
-  let thtml = '';
+  let html = '';
   TEST_POINTS.forEach(tp => {
     const p = projectGPS(tp[0], tp[1]);
     if (!p) return;
-    const onScreen = (p.x >= 0 && p.x <= SCREEN_W && p.y >= 0 && p.y <= SCREEN_H);
-    thtml += `<div style="font-size:10px; color:${onScreen ? '#4ecca3' : '#e94560'}">
-      ${tp[2]}: screen (${Math.round(p.x)},${Math.round(p.y)}) ${onScreen ? '' : 'OFF'}</div>`;
+    const on = p.x >= 0 && p.y >= 0 && p.x <= screenW && p.y <= screenH;
+    html += `<div style="color:${on ? '#4ecca3' : '#e94560'}">${tp[2]}: (${Math.round(p.x)},${Math.round(p.y)})${on ? '' : ' OFF'}</div>`;
   });
-  testDiv.innerHTML = thtml;
+  tp.innerHTML = html;
   drawAll();
 }
 
-// ── Canvas click ──────────────────────────────────────────────
+// ── Click handler ─────────────────────────────────────────────
 canvas.addEventListener('click', (e) => {
   const rect = canvas.getBoundingClientRect();
-  const sx = Math.round(e.clientX - rect.left);
-  const sy = Math.round(e.clientY - rect.top);
+  const sx = Math.round((e.clientX - rect.left) * screenW / rect.width);
+  const sy = Math.round((e.clientY - rect.top) * screenH / rect.height);
 
-  pixelCoords[selectedIdx].x = sx + IMAGE_X;
-  pixelCoords[selectedIdx].y = sy + IMAGE_Y;
+  pixelCoords[selectedIdx].x = sx;
+  pixelCoords[selectedIdx].y = sy;
   pixelCoords[selectedIdx].set = true;
 
-  document.getElementById(`px-${selectedIdx}`).value = pixelCoords[selectedIdx].x;
-  document.getElementById(`py-${selectedIdx}`).value = pixelCoords[selectedIdx].y;
+  document.getElementById(`px-${selectedIdx}`).value = sx;
+  document.getElementById(`py-${selectedIdx}`).value = sy;
 
   buildAnchorUI();
   drawAll();
   updateProjection();
-  statusEl.textContent = `✓ ${ANCHORS[selectedIdx][4]} set at screen (${pixelCoords[selectedIdx].x}, ${pixelCoords[selectedIdx].y})`;
+  document.getElementById('status').textContent = `✓ ${ANCHORS[selectedIdx][4]} → (${sx}, ${sy})`;
 });
 
 // ── Actions ───────────────────────────────────────────────────
 function clearAll() {
-  pixelCoords.forEach(p => { p.x = 0; p.y = 0; p.set = false; });
-  buildAnchorUI();
-  drawAll();
-  updateProjection();
-  statusEl.textContent = 'Cleared — click map to place anchors';
+  pixelCoords.forEach(p => { p.set = false; });
+  buildAnchorUI(); drawAll(); updateProjection();
 }
 
 function useDefaults() {
   ANCHORS.forEach((a, i) => {
-    pixelCoords[i].x = a[2];
-    pixelCoords[i].y = a[3];
-    pixelCoords[i].set = true;
-    const xi = document.getElementById(`px-${i}`);
-    const yi = document.getElementById(`py-${i}`);
-    if (xi) xi.value = a[2];
-    if (yi) yi.value = a[3];
+    pixelCoords[i].x = a[2]; pixelCoords[i].y = a[3]; pixelCoords[i].set = true;
+    const x = document.getElementById(`px-${i}`); if (x) x.value = a[2];
+    const y = document.getElementById(`py-${i}`); if (y) y.value = a[3];
   });
-  buildAnchorUI();
-  drawAll();
-  updateProjection();
-  statusEl.textContent = 'Reset to default anchor positions';
+  buildAnchorUI(); drawAll(); updateProjection();
 }
 
 function downloadConfig() {
-  const lines = [];
-  lines.push('# Generated by calibrate.py');
-  lines.push('anchors:');
+  const lines = ['# Generated by calibrate.py', 'anchors:'];
   ANCHORS.forEach((a, i) => {
     const px = pixelCoords[i];
-    lines.push(`  - [${a[0]}, ${a[1]}, ${px.set ? px.x : a[2]}, ${px.set ? px.y : a[3]}]  # ${a[4] || 'anchor-'+i}`);
+    lines.push(`  - [${a[0]}, ${a[1]}, ${px.set ? px.x : 0}, ${px.set ? px.y : 0}]  # ${a[4]}`);
   });
 
-  const blob = new Blob([lines.join('\n')], {type: 'text/yaml'});
-  const url = URL.createObjectURL(blob);
+  const blob = new Blob([lines.join('\n') + '\n'], {type: 'text/yaml'});
   const a = document.createElement('a');
-  a.href = url;
+  a.href = URL.createObjectURL(blob);
   a.download = 'anchors.yaml';
   a.click();
-  statusEl.textContent = 'Downloaded anchors.yaml — merge into config.yaml';
 }
 
 // ── Init ──────────────────────────────────────────────────────
+function loadMap() {
+  mapImg = new Image();
+  mapImg.onload = () => {
+    document.getElementById('info').textContent = `Map: ${mapImg.width}×${mapImg.height}`;
+    drawAll();
+  };
+  mapImg.src = MAP_URL;
+}
+
+resizeScreen();
 buildAnchorUI();
 loadMap();
 updateProjection();
@@ -347,7 +357,6 @@ updateProjection();
 
 
 def build_page():
-    """Inject Python data into the HTML template."""
     import yaml
 
     try:
@@ -358,7 +367,6 @@ def build_page():
         sys.exit(1)
 
     anchors = cfg["anchors"]
-    # Add names for anchors
     anchor_names = ["The Man", "The Temple", "Center Camp", "9:00 & G", "3:00 & G"]
     named_anchors = []
     for i, a in enumerate(anchors):
@@ -375,19 +383,41 @@ def build_page():
         [40.773883, -119.195565, "3G"],
     ]
 
+    # Trash fence pentagon vertices from GIS (10 points = 9 unique + closing)
+    pent_points = [
+        [40.779710, -119.237418],
+        [40.770250, -119.224998],
+        [40.760788, -119.212582],
+        [40.766837, -119.196912],
+        [40.772884, -119.181240],
+        [40.799327, -119.186723],
+        [40.801425, -119.204065],
+        [40.803521, -119.221408],
+        [40.791616, -119.229414],
+    ]
+
+    map_path = ROOT / "media" / "Map_1bit.png"
+    from PIL import Image
+
+    img = Image.open(map_path)
+    map_w, map_h = img.size
+
     return (
         PAGE.replace("__ANCHORS__", json.dumps(named_anchors))
         .replace("__TEST_POINTS__", json.dumps(test_points))
+        .replace("__PENT_POINTS__", json.dumps(pent_points))
+        .replace("__TRASH_FENCE_FT__", str(cfg.get("distance_man_to_trashfence_ft", 8479)))
         .replace("__SCREEN_W__", str(cfg["display"]["width"]))
         .replace("__SCREEN_H__", str(cfg["display"]["height"]))
         .replace("__IMAGE_X__", str(cfg["image_position"][0]))
         .replace("__IMAGE_Y__", str(cfg["image_position"][1]))
         .replace("__FEET_PER_DEG__", str(cfg["feet_per_degree"]))
+        .replace("__MAP_W__", str(map_w))
+        .replace("__MAP_H__", str(map_h))
     )
 
 
 def serve_map_png():
-    """Read the map PNG as bytes."""
     map_path = ROOT / "media" / "Map_1bit.png"
     try:
         with open(map_path, "rb") as f:
@@ -423,9 +453,9 @@ def main():
             print(f"[calibrate] {args[0]}")
 
     port = 8050
-    print("🔧 BRC Map Calibrator")
-    print(f"   Open http://localhost:{port} in your browser")
-    print("   Click the map to set anchor positions")
+    print("🔧 BRC ePaper Map Calibrator")
+    print(f"   Open http://localhost:{port}")
+    print(f"   Simulates the full {page_html.count(b'screen')} e-ink screen layout")
     print("   Press Ctrl+C to stop")
     print()
 
