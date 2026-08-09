@@ -10,7 +10,9 @@ display:
 sleep_seconds: 60
 
 # --- Map Image ---
-# Where the Map_1bit.png is pasted on the screen (top-left corner)
+# Map file (in media/ directory)
+map_file: "media/BRC_2026_Map_1bit.png"
+# Where the map is pasted on the screen (top-left corner)
 image_position: [6, 400]
 
 # --- GPS → Screen Calibration ---
