@@ -150,14 +150,10 @@ def main(args):
         from friend_store import FriendStore
 
         friend_store = FriendStore(c.friends_file)
-        logging.info(
-            "loaded %d friends from %s", friend_store.count(), c.friends_file
-        )
+        logging.info("loaded %d friends from %s", friend_store.count(), c.friends_file)
         friend_srv = FriendServer(friend_store, port=c.friend_server_port)
         friend_srv.start()
-        logging.info(
-            "friend server at http://0.0.0.0:%d", c.friend_server_port
-        )
+        logging.info("friend server at http://0.0.0.0:%d", c.friend_server_port)
 
     epd = None
     if not args.screen:

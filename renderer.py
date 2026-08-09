@@ -19,27 +19,25 @@ FILL = 0
 # --- test coordinates from official 2026 GIS data ---
 # Source: innovate-GIS-data/2026/GeoJSON/
 _TEST_COORDS = [
-    [40.783247, -119.207884, "man"],       # The Man
-    [40.788099, -119.201500, "temple"],     # The Temple
-    [40.777372, -119.215612, "center"],     # Center Camp
-    [40.792611, -119.220207, "9G"],         # 9:00 & G
-    [40.783245, -119.225308, "730G"],       # 7:30 & G
-    [40.770004, -119.207883, "430G"],       # 4:30 & G
-    [40.773883, -119.195565, "3G"],         # 3:00 & G
-    [40.779710, -119.237418, "pt1"],        # fence v1
-    [40.803521, -119.221408, "pt2"],        # fence v2
-    [40.799288, -119.186672, "pt3"],        # fence v3
-    [40.772884, -119.181240, "pt4"],        # fence v4
-    [40.760788, -119.212582, "pt5"],        # fence v5
+    [40.783247, -119.207884, "man"],  # The Man
+    [40.788099, -119.201500, "temple"],  # The Temple
+    [40.777372, -119.215612, "center"],  # Center Camp
+    [40.792611, -119.220207, "9G"],  # 9:00 & G
+    [40.783245, -119.225308, "730G"],  # 7:30 & G
+    [40.770004, -119.207883, "430G"],  # 4:30 & G
+    [40.773883, -119.195565, "3G"],  # 3:00 & G
+    [40.779710, -119.237418, "pt1"],  # fence v1
+    [40.803521, -119.221408, "pt2"],  # fence v2
+    [40.799288, -119.186672, "pt3"],  # fence v3
+    [40.772884, -119.181240, "pt4"],  # fence v4
+    [40.760788, -119.212582, "pt5"],  # fence v5
 ]
 
 
 def draw_dot(draw, coord, radius=5, fill_color=FILL):
     """Draw a filled circle at the given (x, y) pixel coordinate."""
     x, y = coord
-    draw.ellipse(
-        [(x - radius, y - radius), (x + radius, y + radius)], fill=fill_color
-    )
+    draw.ellipse([(x - radius, y - radius), (x + radius, y + radius)], fill=fill_color)
 
 
 def draw_upward_pentagon(draw, center, radius, outline_color="black", fill_color=None):
@@ -76,9 +74,7 @@ def draw_node_labels(burners, draw_black, draw_red):
 
     for name in burners:
         burner = burners[name]
-        draw_red.text(
-            burner["image_coordinates"], "x", font=font, fill=FILL
-        )
+        draw_red.text(burner["image_coordinates"], "x", font=font, fill=FILL)
 
         detail = (
             f"{name}: {burner['bm_coordinates']} "

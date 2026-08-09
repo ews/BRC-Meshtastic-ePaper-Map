@@ -232,7 +232,9 @@ class FriendServer(threading.Thread):
         self._mesh = interface
 
     def run(self):
-        server = HTTPServer(("0.0.0.0", self._port), _make_handler(self._store, self._mesh))
+        server = HTTPServer(
+            ("0.0.0.0", self._port), _make_handler(self._store, self._mesh)
+        )
         print(f"[friend-server] listening on :{self._port}")
         server.serve_forever()
 

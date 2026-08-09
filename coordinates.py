@@ -110,4 +110,3 @@ def gps_to_image_coordinates(coord):
     y = max(0, min(c.HEIGHT - 1, int(round(py))))
 
     return (x, y)
-
