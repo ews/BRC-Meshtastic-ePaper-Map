@@ -88,7 +88,7 @@ def main():
     print("Suggested config.yaml updates:")
     bottom_y = args.height - new_h
     print(f"  image_position: [{(args.width - new_w) // 2}, {bottom_y}]")
-    print(f"  # map_file: \"{Path(args.output).name}\"  (if different from current)")
+    print(f'  # map_file: "{Path(args.output).name}"  (if different from current)')
 
 
 if __name__ == "__main__":

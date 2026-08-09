@@ -4,7 +4,6 @@
 Useful for verifying hardware connection on a Raspberry Pi.
 """
 
-
 from PIL import Image, ImageDraw
 
 
