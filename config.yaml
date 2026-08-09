@@ -9,43 +9,43 @@ display:
 # --- Polling ---
 sleep_seconds: 60
 
-# --- Map Center (The Man coordinates) ---
-man_lat: 40.783247
-man_long: -119.207884
-
-# --- BRC City Geometry (in feet) ---
-distance_man_esplanade: 2500
-distance_man_to_end_trashfence_ft: 8479
-
-# Street widths from Esplanade outward (Esplanade, A, B, C, D, E, F, G, H, I, J, K)
-distance_streets: [400, 250, 250, 250, 250, 250, 450, 250, 250, 250, 150, 150]
-
-# Street name letters (Esplanade + A through this letter)
-street_last_letter: "K"
-
-# BRC noon offset — the city grid is rotated; noon on the clock face is not at 12:00
-brc_noon: 1.5
-
-# --- Coordinate Conversion ---
-# Rotation angle for GPS → screen pixel mapping (degrees)
-rotation_angle: 0
-
-# City angle for GPS → BRC clock+street address (degrees)
-city_angle: 45
-
-# Approximate feet per degree of latitude
-feet_per_degree: 364000
-
-# --- Map Image Positioning ---
-# Position of the map image within the screen (x, y)
+# --- Map Image ---
+# Where the Map_1bit.png is pasted on the screen (top-left corner)
 image_position: [6, 400]
 
-# Pixel coordinates of The Man on the map image
-man_svg: [240, 516]
+# --- GPS → Screen Calibration ---
+# Provide 2+ anchor points: [lat, lon, screen_x, screen_y]
+# The first anchor is the origin (typically The Man).
+# The second defines scale and rotation (pick a well-separated point like Temple or a G plaza).
+# All pixel coordinates are relative to the SCREEN (not the map image).
+anchors:
+  - [40.783247, -119.207884, 240, 516]    # The Man
+  - [40.788099, -119.201500, 240, 414]    # The Temple (2500ft NE of Man)
+  # You can add more anchors for verification (they don't change the transform)
+  # - [40.777372, -119.215612, 240, 639]  # Center Camp
+  # - [40.792611, -119.220207, 43, 516]   # 9:00 & G Plaza
+  # - [40.773883, -119.195565, 436, 516]  # 3:00 & G Plaza
 
-# Pixel radii for the city on the map image
-svg_city_esplanade_radius_pixel: 98
-svg_city_radius_pixel: 230
+# Approximate feet per degree of latitude (used for GPS→feet conversion)
+feet_per_degree: 364000
+
+# --- BRC City Geometry (for BRC address display, not screen mapping) ---
+brc:
+  # The Man coordinates
+  man_lat: 40.783247
+  man_long: -119.207884
+
+  # Distance from Man to Esplanade (feet)
+  distance_man_esplanade: 2500
+
+  # Street widths from Esplanade outward (Esplanade, A, B, C, D, E, F, G, H, I, J, K)
+  distance_streets: [400, 250, 250, 250, 250, 250, 450, 250, 250, 250, 150, 150]
+
+  # Street name letters (Esplanade + A through this letter)
+  street_last_letter: "K"
+
+  # BRC noon offset (hours) — 1.5 means geographic noon = BRC 10:30
+  brc_noon: 1.5
 
 # --- Behavior ---
 # Minimum distance (feet) a node must move to trigger a screen refresh
@@ -55,7 +55,6 @@ min_distance_refresh_ft: 50
 log_file: "burners.log"
 
 # --- Points of Interest ---
-# Known camps/locations displayed by name instead of clock+street
 points_of_interest:
   Temple:
     clock: "12:00"
@@ -67,5 +66,10 @@ points_of_interest:
     clock: "12:00"
     distance_from_man_ft: 0
 
-# Radius (feet) within which a node is identified as being at a POI
 poi_radius_ft: 50
+
+# --- Trash Fence (for debug pentagon drawing, screen pixels from Man) ---
+# Distance from Man to trash fence (feet)
+distance_man_to_trashfence_ft: 8479
+# Pixel radius of the trash fence pentagon (will be auto-computed if not set)
+trash_fence_radius_px: 332

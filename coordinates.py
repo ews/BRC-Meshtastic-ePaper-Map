@@ -91,44 +91,25 @@ def gps_to_burning_man(lat, lon):
 
 
 def gps_to_image_coordinates(coord):
-    """Convert (lat, lon, name) to (x, y) pixel coordinates on the screen.
+    """Convert (lat, lon, name) to (x, y) screen pixel coordinates.
 
-    Uses the rotation angle from config to match BRC's grid orientation.
+    Uses the MapProjection configured from anchor points in config.yaml.
     """
-
     latitude = coord[0]
     longitude = coord[1]
     point_name = coord[2]
 
     _validate_coords(latitude, longitude)
 
-    # Normalize GPS to [0, 1] range
-    x_norm = (longitude - c.lon_min) / (c.lon_max - c.lon_min)
-    y_norm = (c.lat_max - latitude) / (c.lat_max - c.lat_min)
+    px, py = c.projection.gps_to_pixel(latitude, longitude)
 
-    # Convert to pixel coordinates
-    x = c.left_limit + x_norm * (c.right_limit - c.left_limit)
-    y = c.twelve_limit + y_norm * (c.bottom_limit - c.twelve_limit)
+    logging.debug("project %s -> (%.1f, %.1f)", point_name, px, py)
 
-    # Rotate around The Man
-    dx = x - c.man_svg[0]
-    dy = y - c.man_svg[1]
+    # Clamp to screen bounds
+    x = max(0, min(c.WIDTH - 1, int(round(px))))
+    y = max(0, min(c.HEIGHT - 1, int(round(py))))
 
-    logging.debug("dx dy %s %s %s", point_name, dx, dy)
-
-    angle_rad = math.radians(c.ROTATION_ANGLE)
-    dx_rot = dx * math.cos(angle_rad) - dy * math.sin(angle_rad)
-    dy_rot = dx * math.sin(angle_rad) + dy * math.cos(angle_rad)
-
-    # Translate back
-    x_rot = c.man_svg[0] + dx_rot
-    y_rot = c.man_svg[1] + dy_rot
-
-    # Clamp to screen map area
-    x_clamped = max(0, min(c.right_limit, int(x_rot)))
-    y_clamped = max(0, min(c.bottom_limit, int(y_rot)))
-
-    return (x_clamped, y_clamped)
+    return (x, y)
 
 
 def burning_man_to_gps(coordinates, shift_deg=0):
