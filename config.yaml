@@ -11,7 +11,7 @@ sleep_seconds: 60
 
 # --- Map Image ---
 # Map file (in media/ directory)
-map_file: "media/BRC_2026_Map_1bit.png"
+map_file: "media/Map_resized.png"
 # Where the map is pasted on the screen (top-left corner)
 image_position: [6, 400]
 
