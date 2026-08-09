@@ -11,9 +11,9 @@ sleep_seconds: 60
 
 # --- Map Image ---
 # Map file (in media/ directory)
-map_file: "media/BRC_2026_Map_1bit.png"
+map_file: "media/Map_resized.png"
 # Where the map is pasted on the screen (top-left corner)
-image_position: [-533, -58]
+image_position: [0, 300]
 
 # --- GPS → Screen Calibration ---
 # Provide 2+ anchor points: [lat, lon, screen_x, screen_y]
@@ -21,12 +21,8 @@ image_position: [-533, -58]
 # The second defines scale and rotation (pick a well-separated point like Temple or a G plaza).
 # All pixel coordinates are relative to the SCREEN (not the map image).
 anchors:
-  - [40.783247, -119.207884, 240, 516] # The Man
-  - [40.788099, -119.201500, 240, 414] # The Temple (2500ft NE of Man)
-  # You can add more anchors for verification (they don't change the transform)
-  # - [40.777372, -119.215612, 240, 639]  # Center Camp
-  # - [40.792611, -119.220207, 43, 516]   # 9:00 & G Plaza
-  # - [40.773883, -119.195565, 436, 516]  # 3:00 & G Plaza
+  - [40.783247, -119.207884, 240, 478] # The Man (centered on resized map — calibrate!)
+  - [40.788099, -119.201500, 265, 455] # The Temple (approximate — calibrate!)
 
 # Approximate feet per degree of latitude (used for GPS→feet conversion)
 feet_per_degree: 364000
