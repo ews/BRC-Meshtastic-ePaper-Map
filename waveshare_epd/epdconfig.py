@@ -3,6 +3,7 @@
 This is the standard hardware abstraction layer for WaveShare ePaper HATs.
 Requires RPi.GPIO and spidev (Raspberry Pi only).
 """
+# ruff: noqa
 
 import logging
 import time
@@ -21,7 +22,7 @@ _SPI = None
 def module_init():
     """Initialize GPIO and SPI."""
     try:
-        from RPi import GPIO
+        import RPi.GPIO as GPIO
     except ImportError:
         logger.error("RPi.GPIO not available — not running on a Raspberry Pi?")
         return -1
@@ -51,12 +52,13 @@ def module_init():
 def module_exit():
     """Clean up GPIO and SPI."""
     try:
-        from RPi import GPIO
+        import RPi.GPIO as GPIO
+
+        GPIO.cleanup()
     except ImportError:
-        return
+        pass
     if _SPI is not None:
         _SPI.close()
-    GPIO.cleanup()
 
 
 def delay_ms(ms):
@@ -73,13 +75,13 @@ def spi_writebyte(data):
 
 def digital_write(pin, value):
     """Set a GPIO pin high or low."""
-    from RPi import GPIO
+    import RPi.GPIO as GPIO
 
     GPIO.output(pin, value)
 
 
 def digital_read(pin):
     """Read a GPIO pin."""
-    from RPi import GPIO
+    import RPi.GPIO as GPIO
 
     return GPIO.input(pin)

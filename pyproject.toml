@@ -32,6 +32,7 @@ include = ["*.py"]
 [tool.ruff]
 line-length = 88
 target-version = "py39"
+exclude = ["waveshare_epd/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
