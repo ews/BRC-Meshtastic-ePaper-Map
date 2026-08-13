@@ -80,6 +80,16 @@ def test_map_frame_is_rgb_and_has_supported_dimensions():
     assert frame.size == (480, 800)
 
 
+def test_map_frame_displays_updated_timestamp_in_bottom_right_corner():
+    base = display_map._load_map()
+    without_timestamp = display_map._new_frame(base, updated_at=0)[0]
+    frame, _ = display_map._new_frame(base, updated_at=1_786_649_028)
+
+    changed = ImageChops.difference(frame, without_timestamp)
+    assert changed.getbbox() is not None
+    assert changed.crop((240, 760, 480, 800)).getbbox() is not None
+
+
 def test_initial_map_is_displayed_before_mesh_connection(monkeypatch):
     events = []
 

@@ -23,6 +23,7 @@ from renderer import (
     draw_dot,
     draw_node_labels,
     draw_test_coordinates,
+    draw_updated_timestamp,
     draw_upward_pentagon,
 )
 
@@ -73,7 +74,7 @@ def _load_map():
     return base
 
 
-def _new_frame(base):
+def _new_frame(base, updated_at=None):
     """Create a clean frame with the static trash-fence outline."""
     frame = base.copy()
     draw = ImageDraw.Draw(frame)
@@ -82,6 +83,7 @@ def _new_frame(base):
         center=c.man_svg,
         radius=c.svg_city_man_to_trashfence_pixel,
     )
+    draw_updated_timestamp(draw, updated_at)
     return frame, draw
 
 

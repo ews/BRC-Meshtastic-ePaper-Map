@@ -5,6 +5,7 @@ and the debug test coordinate overlay.
 """
 
 import math
+from datetime import datetime
 
 from PIL import ImageFont
 
@@ -121,6 +122,23 @@ def draw_node_labels(burners, draw, colors=None):
     return draw
 
 
+def draw_updated_timestamp(draw, timestamp=None):
+    """Draw the frame's local update time in the bottom-right corner."""
+    updated_at = (
+        datetime.now() if timestamp is None else datetime.fromtimestamp(timestamp)
+    )
+    font = ImageFont.truetype("./media/Font.ttc", 10)
+    label = f"updated: {updated_at:%Y-%m-%d %H:%M:%S}"
+    draw.text(
+        (c.WIDTH - 8, c.HEIGHT - 8),
+        label,
+        font=font,
+        fill=BLACK,
+        anchor="rb",
+    )
+    return draw
+
+
 def draw_test_coordinates(draw, calibrate=False):
     """Draw labeled test points for calibration/debug."""
     font = ImageFont.truetype("./media/Font.ttc", 12)
@@ -153,6 +171,4 @@ def draw_test_coordinates(draw, calibrate=False):
 
 def _time_str(timestamp):
     """Format a Unix timestamp as HH:MM:SS."""
-    from datetime import datetime
-
     return datetime.fromtimestamp(timestamp).strftime("%H:%M:%S")
