@@ -34,6 +34,7 @@ them on a WaveShare 7.3" E6/Spectra 6 full-color PhotoPainter display
 - **Anchor-point map projection** — calibrate once with 2+ GPS→pixel pairs
 - **Web calibration tool** (`calibrate.py`) — click to set anchor positions
 - **Friend filtering** — only show whitelisted node IDs on the display
+- **Per-burner symbols** — matching e-paper-safe emoji in the list and on the map
 - **Web management UI** (`friend_server.py`) — add/remove/edit friends
 - **Exponential backoff retry** on mesh connection drops
 - **Debug mode** with test coordinates and calibration overlays

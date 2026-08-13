@@ -13,6 +13,8 @@ def test_mockup_has_requested_number_of_people_and_brc_addresses():
     assert len(burners) == 6
     assert len(set(burners)) == 6
     assert all(" + " in data["bm_coordinates"] for data in burners.values())
+    emojis = [data["emoji"] for data in burners.values()]
+    assert len(set(emojis)) == len(emojis)
 
 
 def test_default_mockup_has_five_or_six_visible_people():

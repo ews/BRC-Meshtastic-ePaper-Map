@@ -5,6 +5,7 @@ and the debug test coordinate overlay.
 """
 
 import math
+from hashlib import sha256
 
 from PIL import ImageFont
 
@@ -18,6 +19,26 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
+
+# Monochrome emoji-style symbols covered by the bundled font. These survive
+# Pillow rendering and E6 palette conversion without requiring a color-emoji
+# font, which is important on the Raspberry Pi image.
+BURNER_EMOJIS = (
+    "★",
+    "☎",
+    "♠",
+    "♥",
+    "♦",
+    "♣",
+    "♪",
+    "✧",
+    "♔",
+    "♕",
+    "♖",
+    "♗",
+    "♘",
+    "♙",
+)
 
 # --- test coordinates from official 2026 GIS data ---
 # Source: innovate-GIS-data/2026/GeoJSON/
@@ -70,19 +91,50 @@ def draw_upward_pentagon(draw, center, radius, outline_color=RED, fill_color=Non
     return draw
 
 
+def assign_burner_emojis(burners):
+    """Assign stable, distinct symbols to the visible burners when possible."""
+    used = set()
+    ordered = sorted(
+        burners.items(), key=lambda item: item[1].get("node_id", item[0])
+    )
+    for name, burner in ordered:
+        if burner.get("emoji"):
+            used.add(burner["emoji"])
+            continue
+        identity = burner.get("node_id", name).encode("utf-8")
+        start = sha256(identity).digest()[0] % len(BURNER_EMOJIS)
+        for offset in range(len(BURNER_EMOJIS)):
+            emoji = BURNER_EMOJIS[(start + offset) % len(BURNER_EMOJIS)]
+            if emoji not in used:
+                break
+        burner["emoji"] = emoji
+        used.add(emoji)
+    return burners
+
+
 def draw_node_labels(burners, draw, colors=None):
-    """Draw user labels (x markers) and detail text for all burners."""
+    """Draw matching emoji markers and detail-list entries for all burners."""
     font = ImageFont.truetype("./media/Font.ttc", 12)
+    map_font = ImageFont.truetype("./media/Font.ttc", 18)
     text_start_height = 20
     colors = colors or (RED,)
+    assign_burner_emojis(burners)
 
     for index, name in enumerate(burners):
         burner = burners[name]
         color = colors[index % len(colors)]
-        draw.text(burner["image_coordinates"], "x", font=font, fill=color)
+        emoji = burner["emoji"]
+        x, y = burner["image_coordinates"]
+        draw.ellipse(
+            [(x - 10, y - 10), (x + 10, y + 10)],
+            fill="white",
+            outline=color,
+            width=2,
+        )
+        draw.text((x, y), emoji, font=map_font, fill=color, anchor="mm")
 
         detail = (
-            f"{name}: {burner['bm_coordinates']} "
+            f"{emoji} {name}: {burner['bm_coordinates']} "
             f"at {_time_str(burner['coordinates']['time'])}"
         )
         draw.text((10, text_start_height), detail, font=font, fill=color)

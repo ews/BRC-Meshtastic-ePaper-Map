@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import display_map
 import pytest
+from PIL import Image, ImageChops, ImageDraw
+from renderer import assign_burner_emojis, draw_node_labels
 
 
 def _node(lat=40.783247, lon=-119.207884):
@@ -23,6 +25,31 @@ def test_unchanged_coordinates_do_not_request_refresh():
 
 def test_new_node_requests_refresh():
     assert not display_map.equal_bm_coordinates({"Alice": _node()}, {})
+
+
+def test_burners_get_stable_distinct_emojis():
+    burners = {
+        "Alice": _node(),
+        "Bob": {**_node(), "node_id": "!5678"},
+    }
+    assign_burner_emojis(burners)
+    first = {name: data["emoji"] for name, data in burners.items()}
+
+    assign_burner_emojis(burners)
+
+    assert len(set(first.values())) == 2
+    assert {name: data["emoji"] for name, data in burners.items()} == first
+
+
+def test_emoji_labels_render_on_list_and_map():
+    burners = {"Alice": _node()}
+    frame = Image.new("RGB", (480, 800), "white")
+    blank = frame.copy()
+
+    draw_node_labels(burners, ImageDraw.Draw(frame))
+
+    assert burners["Alice"]["emoji"]
+    assert ImageChops.difference(frame, blank).getbbox() is not None
 
 
 def test_map_frame_is_rgb_and_has_supported_dimensions():
