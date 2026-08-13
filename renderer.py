@@ -16,6 +16,8 @@ logging = c.logging
 # Native colors supported by the E6/Spectra 6 panel.
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+GREEN = (0, 255, 0)
 
 # --- test coordinates from official 2026 GIS data ---
 # Source: innovate-GIS-data/2026/GeoJSON/
@@ -68,20 +70,22 @@ def draw_upward_pentagon(draw, center, radius, outline_color=RED, fill_color=Non
     return draw
 
 
-def draw_node_labels(burners, draw):
+def draw_node_labels(burners, draw, colors=None):
     """Draw user labels (x markers) and detail text for all burners."""
     font = ImageFont.truetype("./media/Font.ttc", 12)
     text_start_height = 20
+    colors = colors or (RED,)
 
-    for name in burners:
+    for index, name in enumerate(burners):
         burner = burners[name]
-        draw.text(burner["image_coordinates"], "x", font=font, fill=RED)
+        color = colors[index % len(colors)]
+        draw.text(burner["image_coordinates"], "x", font=font, fill=color)
 
         detail = (
             f"{name}: {burner['bm_coordinates']} "
             f"at {_time_str(burner['coordinates']['time'])}"
         )
-        draw.text((10, text_start_height), detail, font=font, fill=RED)
+        draw.text((10, text_start_height), detail, font=font, fill=color)
         text_start_height += 14
 
     return draw

@@ -117,6 +117,7 @@ No ePaper or Meshtastic radio needed. Works like `npm install`:
 cd BRC-Meshtastic-ePaper-Map
 make install   # creates .venv, installs package in editable mode
 make test      # runs display in --debug --screen mode
+make test-full-mockup  # opens a map with 5–6 random mock people
 ```
 
 A window opens showing the BRC map with test point labels. See all targets:
