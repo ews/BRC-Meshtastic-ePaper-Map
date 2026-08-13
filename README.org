@@ -14,12 +14,9 @@ Burning Man is a festival of art, self-expression, and community, set in the spr
 
 ** Hardware
 
-I personally have been using the WaveShare 7.5 (800x480), adjust resolution if you want to use a different one
-
-[[https://www.amazon.com/gp/product/B09JSFTGV6/ref=ppx_yo_dt_b_search_asin_title?ie=UTF8&psc=1][Amazon]] (around $50 in Aug 2023)
-[[https://www.aliexpress.us/item/3256804935498922.html][AliExpress]] (compatible one for less than $20)
-
-Remember to buy an epaper SPI hat
+The current driver targets the WaveShare 7.3-inch E6 full-color PhotoPainter
+for Raspberry Pi Zero (800x480), using =epd7in3e= and BCM 27 for panel power.
+The older 7.5-inch =epd7in5_V2= panels use a different protocol.
 
 ** Debug Mode
 

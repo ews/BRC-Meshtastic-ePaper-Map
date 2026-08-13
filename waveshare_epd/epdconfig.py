@@ -15,6 +15,7 @@ RST_PIN = 17
 DC_PIN = 25
 CS_PIN = 8
 BUSY_PIN = 24
+PWR_PIN = 27
 
 _SPI = None
 
@@ -40,6 +41,8 @@ def module_init():
     GPIO.setup(DC_PIN, GPIO.OUT)
     GPIO.setup(CS_PIN, GPIO.OUT)
     GPIO.setup(BUSY_PIN, GPIO.IN)
+    GPIO.setup(PWR_PIN, GPIO.OUT)
+    GPIO.output(PWR_PIN, GPIO.HIGH)
 
     _SPI = spidev.SpiDev()
     _SPI.open(0, 0)
@@ -54,6 +57,7 @@ def module_exit():
     try:
         import RPi.GPIO as GPIO
 
+        GPIO.output(PWR_PIN, GPIO.LOW)
         GPIO.cleanup()
     except ImportError:
         pass
@@ -71,6 +75,13 @@ def spi_writebyte(data):
     if _SPI is None:
         return
     _SPI.writebytes(data)
+
+
+def spi_writebyte2(data):
+    """Write a framebuffer, allowing spidev to split large transfers."""
+    if _SPI is None:
+        raise RuntimeError("SPI is not initialized")
+    _SPI.writebytes2(data)
 
 
 def digital_write(pin, value):

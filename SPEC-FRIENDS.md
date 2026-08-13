@@ -285,7 +285,7 @@ Updated `main()` in `display_map.py`:
 ## 7. Future Extensions (not in scope)
 
 - **Groups** — tag friends into groups (e.g. "camp", "art car") to show/hide
-- **Color coding** — assign colors to friends for the red channel on ePaper
+- **Color coding** — assign the E6 panel's native colors to friends
 - **Geofencing** — alert when a friend enters/exits a defined area
 - **Push notifications** — webhook/Telegram when a friend moves
 - **SQLite backend** — migrate from JSON if friend count exceeds ~100

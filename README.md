@@ -25,7 +25,8 @@ mesh networks and a WaveShare ePaper display.
 
 Connects to a Meshtastic LoRa radio (serial or TCP), polls for node GPS
 positions, converts them to Burning Man clock+street addresses, and renders
-them on a WaveShare 7.5" black-and-red ePaper display (800×480).
+them on a WaveShare 7.3" E6/Spectra 6 full-color PhotoPainter display
+(800×480).
 
 ### Key features
 
@@ -255,8 +256,11 @@ python3 display_map.py --no-friends   # shows all mesh nodes
 ### Hardware
 
 - Raspberry Pi (Zero 2W, 3, or 4)
-- WaveShare 7.5" ePaper HAT (800×480, black/red)
+- WaveShare 7.3" E6 full-color PhotoPainter for Raspberry Pi Zero (800×480)
 - Meshtastic radio (serial or TCP)
+
+This PhotoPainter uses the `epd7in3e` driver and its board-specific BCM 27
+power pin. Older `epd7in5_V2` monochrome/tri-color drivers are incompatible.
 
 ### Install
 

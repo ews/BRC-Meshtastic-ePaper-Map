@@ -40,7 +40,7 @@ def equal_bm_coordinates(new, old):
         return False
 
     for burner in new:
-        if "position" in new[burner] and "latitude" in new[burner]["coordinates"]:
+        if "latitude" in new[burner].get("coordinates", {}):
             dist = distance_ft(
                 (
                     new[burner]["coordinates"]["latitude"],
@@ -63,39 +63,33 @@ def equal_bm_coordinates(new, old):
 
 
 def _load_map():
-    """Load the base map image and prepare PIL drawing surfaces."""
-    png = Image.open(c.map_file)
-    black_layer = Image.new("1", (c.WIDTH, c.HEIGHT), 255)
-    black_layer.paste(png, c.image_position)
+    """Load the map into an RGB canvas suitable for the E6 panel."""
+    png = Image.open(c.map_file).convert("RGB")
+    base = Image.new("RGB", (c.WIDTH, c.HEIGHT), "white")
+    base.paste(png, c.image_position)
+    return base
 
-    red_layer = Image.new("1", (c.WIDTH, c.HEIGHT), 255)
 
-    draw_black = ImageDraw.Draw(black_layer)
-    draw_red = ImageDraw.Draw(red_layer)
-    draw_red = draw_upward_pentagon(
-        draw_red,
+def _new_frame(base):
+    """Create a clean frame with the static trash-fence outline."""
+    frame = base.copy()
+    draw = ImageDraw.Draw(frame)
+    draw_upward_pentagon(
+        draw,
         center=c.man_svg,
         radius=c.svg_city_man_to_trashfence_pixel,
     )
+    return frame, draw
 
-    return black_layer, red_layer, draw_black, draw_red
 
-
-def _draw_debug_overlay(draw_black, draw_red, black_layer, red_layer):
+def _draw_debug_overlay(base):
     """Draw calibration marks and test coordinates for --debug mode."""
-    # Clear drawing layers
-    draw_black = ImageDraw.Draw(black_layer)
-    draw_red = ImageDraw.Draw(red_layer)
-    draw_red = draw_upward_pentagon(
-        draw_red,
-        center=c.man_svg,
-        radius=c.svg_city_man_to_trashfence_pixel,
-    )
+    frame, draw = _new_frame(base)
 
     # Landmark dots
-    draw_dot(draw_red, c.man_svg)
-    draw_dot(draw_red, c.temple_svg)
-    draw_dot(draw_red, c.centercamp_svg)
+    draw_dot(draw, c.man_svg)
+    draw_dot(draw, c.temple_svg)
+    draw_dot(draw, c.centercamp_svg)
 
     # Bounding box corner markers
     min_coords_svg = gps_to_image_coordinates((c.lat_min, c.lon_min, "min"))
@@ -104,12 +98,10 @@ def _draw_debug_overlay(draw_black, draw_red, black_layer, red_layer):
         (c.top_trash_fence.latitude, c.top_trash_fence.longitude, "max")
     )
 
-    draw_dot(draw_red, min_coords_svg)
-    draw_dot(draw_red, trash_svg)
-    draw_dot(draw_red, max_coords_svg)
-    draw_dot(draw_red, (c.lat_min, c.lon_min))
-    draw_dot(draw_red, (c.lat_max, c.lon_max))
-    draw_red.line([trash_svg, min_coords_svg], fill=0, width=0)
+    draw_dot(draw, min_coords_svg)
+    draw_dot(draw, trash_svg)
+    draw_dot(draw, max_coords_svg)
+    draw.line([trash_svg, min_coords_svg], fill="red", width=1)
 
     # Boundary lines
     shapes = [
@@ -122,25 +114,26 @@ def _draw_debug_overlay(draw_black, draw_red, black_layer, red_layer):
         [(c.man_svg[0], 0), (c.man_svg[0], c.HEIGHT - 10)],
     ]
     for shape in shapes:
-        draw_red.line(shape, fill=0, width=0)
+        draw.line(shape, fill="red", width=1)
 
-    draw_black = draw_test_coordinates(draw_black)
-
-    return draw_black, draw_red
+    draw_test_coordinates(draw)
+    return frame
 
 
 def _init_epd():
-    """Initialize the WaveShare ePaper display (Pi-only)."""
-    from waveshare_epd import epd7in5b_V2
+    """Initialize the WaveShare 7.3-inch E6 PhotoPainter display."""
+    from waveshare_epd import epd7in3e
 
-    epd = epd7in5b_V2.EPD()
-    logging.info("ePaper init and Clear")
-    epd.init()
+    epd = epd7in3e.EPD()
+    logging.info("initializing 7.3-inch E6 ePaper")
+    if epd.init() != 0:
+        raise RuntimeError("ePaper initialization failed")
     return epd
 
 
 def main(args):
-    black_layer, red_layer, draw_black, draw_red = _load_map()
+    base = _load_map()
+    frame, draw = _new_frame(base)
 
     # Friend filtering
     friend_store = None
@@ -166,22 +159,14 @@ def main(args):
             friend_srv.set_mesh(interface)
 
     old_coords = {}
+    needs_refresh = True
 
     try:
         while True:
             if args.debug:
-                draw_black, draw_red = _draw_debug_overlay(
-                    draw_black, draw_red, black_layer, red_layer
-                )
+                if needs_refresh:
+                    frame = _draw_debug_overlay(base)
             else:
-                # Clear red layer and redraw pentagon
-                draw_red = ImageDraw.Draw(red_layer)
-                draw_red = draw_upward_pentagon(
-                    draw_red,
-                    center=c.man_svg,
-                    radius=c.svg_city_man_to_trashfence_pixel,
-                )
-
                 mesh = get_mesh_info(interface)
                 burners = add_bm_coordinates(mesh)
 
@@ -212,16 +197,18 @@ def main(args):
 
                 if not equal_bm_coordinates(burners, old_coords):
                     old_coords = burners
-                    draw_black, draw_red = draw_node_labels(
-                        burners, draw_black, draw_red
-                    )
+                    frame, draw = _new_frame(base)
+                    draw_node_labels(burners, draw)
+                    needs_refresh = True
                 else:
                     logging.debug("points are not really moving")
 
-            if args.screen:
-                black_layer.show()
-            elif epd is not None:
-                epd.display(epd.getbuffer(black_layer), epd.getbuffer(red_layer))
+            if needs_refresh:
+                if args.screen:
+                    frame.show()
+                elif epd is not None:
+                    epd.display(epd.getbuffer(frame))
+                needs_refresh = False
 
             logging.debug("sleeping %ds", c.sleep_seconds)
             time.sleep(c.sleep_seconds)
@@ -229,6 +216,8 @@ def main(args):
     finally:
         if interface is not None:
             interface.close()
+        if epd is not None:
+            epd.sleep()
         logging.info("shutdown complete")
 
 

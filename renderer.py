@@ -13,8 +13,9 @@ from coordinates import gps_to_burning_man, gps_to_image_coordinates
 
 logging = c.logging
 
-# Default fill color for 1-bit images (0 = black)
-FILL = 0
+# Native colors supported by the E6/Spectra 6 panel.
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
 
 # --- test coordinates from official 2026 GIS data ---
 # Source: innovate-GIS-data/2026/GeoJSON/
@@ -34,13 +35,13 @@ _TEST_COORDS = [
 ]
 
 
-def draw_dot(draw, coord, radius=5, fill_color=FILL):
+def draw_dot(draw, coord, radius=5, fill_color=RED):
     """Draw a filled circle at the given (x, y) pixel coordinate."""
     x, y = coord
     draw.ellipse([(x - radius, y - radius), (x + radius, y + radius)], fill=fill_color)
 
 
-def draw_upward_pentagon(draw, center, radius, outline_color="black", fill_color=None):
+def draw_upward_pentagon(draw, center, radius, outline_color=RED, fill_color=None):
     """Draw a dotted upward-pointing pentagon (trash fence outline)."""
     pentagon = []
     for i in range(5):
@@ -67,23 +68,23 @@ def draw_upward_pentagon(draw, center, radius, outline_color="black", fill_color
     return draw
 
 
-def draw_node_labels(burners, draw_black, draw_red):
+def draw_node_labels(burners, draw):
     """Draw user labels (x markers) and detail text for all burners."""
     font = ImageFont.truetype("./media/Font.ttc", 12)
     text_start_height = 20
 
     for name in burners:
         burner = burners[name]
-        draw_red.text(burner["image_coordinates"], "x", font=font, fill=FILL)
+        draw.text(burner["image_coordinates"], "x", font=font, fill=RED)
 
         detail = (
             f"{name}: {burner['bm_coordinates']} "
             f"at {_time_str(burner['coordinates']['time'])}"
         )
-        draw_red.text((10, text_start_height), detail, font=font, fill=FILL)
+        draw.text((10, text_start_height), detail, font=font, fill=RED)
         text_start_height += 14
 
-    return (draw_black, draw_red)
+    return draw
 
 
 def draw_test_coordinates(draw, calibrate=False):
@@ -111,7 +112,7 @@ def draw_test_coordinates(draw, calibrate=False):
                 else "OFF",
             )
 
-        draw.text(px, name, font=font, fill=FILL)
+        draw.text(px, name, font=font, fill=BLACK)
 
     return draw
 
