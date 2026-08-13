@@ -7,7 +7,7 @@ VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
 _VENV_FLAG := $(VENV)/.created
 
-.PHONY: all install install-pi check-venv test test-full-mockup calibrate run run-map test-screen pytest clean help
+.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -50,6 +50,9 @@ test: check-venv  ## run in --debug --screen mode (no hardware needed)
 
 test-full-mockup: check-venv  ## show map with 5–6 random mock people
 	$(VENV_PYTHON) tools/full_mockup.py
+
+test-full-mockup-epaper: check-venv  ## show populated mockup on E6 ePaper
+	$(VENV_PYTHON) tools/full_mockup.py --epaper
 
 calibrate: check-venv  ## launch calibration tool → http://localhost:8050
 	$(VENV_PYTHON) calibrate.py

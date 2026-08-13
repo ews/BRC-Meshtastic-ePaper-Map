@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 import config as c
 from coordinates import gps_to_burning_man
-from display_map import _load_map, _new_frame
+from display_map import _init_epd, _load_map, _new_frame
 from renderer import BLACK, BLUE, GREEN, RED, draw_node_labels
 
 MOCK_COLORS = (RED, BLUE, GREEN, BLACK)
@@ -55,12 +55,25 @@ def build_mockup(seed=None, people=None):
     return frame, burners
 
 
+def display_on_epaper(frame):
+    """Display a mockup frame on the configured E6 panel, then power it down."""
+    epd = _init_epd()
+    try:
+        print("Displaying mockup on 7.3-inch E6 ePaper...")
+        epd.display(epd.getbuffer(frame))
+    finally:
+        epd.sleep()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, help="repeatable random layout")
     parser.add_argument("--people", type=int, help="number of people (default: 5–6)")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--no-show", action="store_true", help="save without opening")
+    parser.add_argument(
+        "--epaper", action="store_true", help="display on the E6 ePaper panel"
+    )
     args = parser.parse_args()
 
     frame, burners = build_mockup(seed=args.seed, people=args.people)
@@ -69,7 +82,9 @@ def main():
     for name, data in burners.items():
         print(f"  {name}: {data['bm_coordinates']}")
 
-    if not args.no_show:
+    if args.epaper:
+        display_on_epaper(frame)
+    elif not args.no_show:
         frame.show()
 
 
