@@ -8,48 +8,53 @@ import sys
 import time
 from pathlib import Path
 
+from geopy import Point
+from geopy.distance import distance as geodesic_distance
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import config as c
-from coordinates import gps_to_burning_man
+from coordinates import gps_to_burning_man, gps_to_image_coordinates
 from display_map import _init_epd, _load_map, _new_frame
 from renderer import BLACK, BLUE, GREEN, RED, draw_node_labels
 
 MOCK_COLORS = (RED, BLUE, GREEN, BLACK)
 DEFAULT_OUTPUT = Path("/tmp/brc-full-mockup.png")
 DEFAULT_PEOPLE = 15
-OPEN_PLAYA_MIN_RADIUS_PX = 28
-OPEN_PLAYA_MAX_RADIUS_PX = 96
+OPEN_PLAYA_MIN_DISTANCE_FT = 700
+OPEN_PLAYA_MAX_DISTANCE_FT = 2300
 MIN_MARKER_SEPARATION_PX = 24
 
 
-def _open_playa_points(rng, count):
-    """Choose separated marker positions inside the open-playa circle."""
-    points = []
+def _open_playa_locations(rng, count):
+    """Generate random GPS locations and project them onto open playa."""
+    center = Point(c.MAN_LAT, c.MAN_LONG)
+    locations = []
     attempts = 0
-    while len(points) < count and attempts < 5000:
+    while len(locations) < count and attempts < 5000:
         attempts += 1
-        angle = rng.uniform(0, 2 * math.pi)
-        radius = math.sqrt(
+        bearing = rng.uniform(0, 360)
+        distance_ft = math.sqrt(
             rng.uniform(
-                OPEN_PLAYA_MIN_RADIUS_PX**2,
-                OPEN_PLAYA_MAX_RADIUS_PX**2,
+                OPEN_PLAYA_MIN_DISTANCE_FT**2,
+                OPEN_PLAYA_MAX_DISTANCE_FT**2,
             )
         )
-        point = (
-            round(c.man_svg[0] + math.cos(angle) * radius),
-            round(c.man_svg[1] + math.sin(angle) * radius),
+        gps = geodesic_distance(feet=distance_ft).destination(
+            center, bearing=bearing
         )
+        lat, lon = gps.latitude, gps.longitude
+        point = gps_to_image_coordinates((lat, lon, "mock burner"))
         separated = all(
-            math.dist(point, existing) >= MIN_MARKER_SEPARATION_PX
-            for existing in points
+            math.dist(point, existing[2]) >= MIN_MARKER_SEPARATION_PX
+            for existing in locations
         )
         if separated:
-            points.append(point)
-    if len(points) != count:
+            locations.append((lat, lon, point))
+    if len(locations) != count:
         raise RuntimeError("Could not place all mock burners without overlap")
-    return points
+    return locations
 
 
 def build_mockup(seed=None, people=DEFAULT_PEOPLE, burner_numbers=None):
@@ -64,10 +69,9 @@ def build_mockup(seed=None, people=DEFAULT_PEOPLE, burner_numbers=None):
     numbers = burner_numbers or rng.sample(range(10, 100), count)
     if len(numbers) != count:
         raise ValueError("burner_numbers must match people")
-    points = _open_playa_points(rng, count)
+    locations = _open_playa_locations(rng, count)
 
-    for number, (x, y) in zip(numbers, points):
-        lat, lon = c.projection.pixel_to_gps(x, y)
+    for number, (lat, lon, image_coordinates) in zip(numbers, locations):
         name = f"Burner {number}"
         burners[name] = {
             "node_id": f"!mock{number:02d}",
@@ -77,7 +81,7 @@ def build_mockup(seed=None, people=DEFAULT_PEOPLE, burner_numbers=None):
                 "time": time.time(),
             },
             "bm_coordinates": gps_to_burning_man(lat, lon),
-            "image_coordinates": (x, y),
+            "image_coordinates": image_coordinates,
         }
 
     draw_node_labels(burners, draw, colors=MOCK_COLORS)

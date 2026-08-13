@@ -1,9 +1,8 @@
 """Tests for the populated desktop map mockup."""
 
-import math
-
 import config as c
 import tools.full_mockup as full_mockup
+from coordinates import distance_ft, gps_to_image_coordinates
 from tools.full_mockup import build_mockup
 
 
@@ -27,9 +26,12 @@ def test_default_mockup_has_15_visible_people_on_open_playa():
         x, y = data["image_coordinates"]
         assert 0 <= x < c.WIDTH
         assert 0 <= y < c.HEIGHT
-        radius = math.dist((x, y), c.man_svg)
-        assert full_mockup.OPEN_PLAYA_MIN_RADIUS_PX - 1 <= radius
-        assert radius <= full_mockup.OPEN_PLAYA_MAX_RADIUS_PX + 1
+        lat = data["coordinates"]["latitude"]
+        lon = data["coordinates"]["longitude"]
+        radius_ft = distance_ft((c.MAN_LAT, c.MAN_LONG), (lat, lon))
+        assert full_mockup.OPEN_PLAYA_MIN_DISTANCE_FT <= radius_ft
+        assert radius_ft <= full_mockup.OPEN_PLAYA_MAX_DISTANCE_FT
+        assert (x, y) == gps_to_image_coordinates((lat, lon, "test burner"))
 
 
 def test_location_updates_keep_burner_identity_and_emoji():

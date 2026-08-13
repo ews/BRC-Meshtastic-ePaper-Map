@@ -123,7 +123,9 @@ make test-full-mockup-epaper  # moves them and refreshes E6 every minute
 ```
 
 The e-paper mockup keeps the same 15 burner identities and emoji while moving
-their positions around open playa every 60 seconds. Press `Ctrl+C` to stop it.
+their positions around open playa every 60 seconds. Each update generates GPS
+latitude/longitude first, then runs the same GPS → BRC address and GPS → screen
+projection used for real Meshtastic nodes. Press `Ctrl+C` to stop it.
 
 A window opens showing the BRC map with test point labels. See all targets:
 
