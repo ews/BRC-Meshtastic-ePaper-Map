@@ -107,11 +107,19 @@ def test_initial_map_is_displayed_before_mesh_connection(monkeypatch):
         events.append("connect")
         raise RuntimeError("stop test after startup")
 
+    class FakeHistory:
+        def __init__(self, path):
+            pass
+
+        def close(self):
+            events.append("history-close")
+
     monkeypatch.setattr(display_map, "_init_epd", FakeEPD)
+    monkeypatch.setattr(display_map, "HistoryStore", FakeHistory)
     monkeypatch.setattr(display_map, "connect_mesh_serial", stop_at_mesh_connection)
     args = SimpleNamespace(no_friends=True, screen=False, debug=False)
 
     with pytest.raises(RuntimeError, match="stop test"):
         display_map.main(args)
 
-    assert events == ["display", "connect", "sleep"]
+    assert events == ["display", "connect", "history-close", "sleep"]

@@ -40,7 +40,7 @@ def test_legacy_file_is_migrated_with_distinct_emojis(tmp_path):
             {
                 "version": 1,
                 "friends": [
-                    {"node_id": "!aaaa", "name": "Alice"},
+                    {"node_id": "!aaaa", "name": "Alice", "last_seen": "old"},
                     {"node_id": "!bbbb", "name": "Bob"},
                 ],
             }
@@ -51,6 +51,7 @@ def test_legacy_file_is_migrated_with_distinct_emojis(tmp_path):
     saved = json.loads(path.read_text())
 
     assert len({friend["emoji"] for friend in friends}) == 2
+    assert all("last_seen" not in friend for friend in friends)
     assert saved["version"] == 2
 
 
@@ -60,3 +61,4 @@ def test_friend_manager_contains_searchable_emoji_picker():
     assert 'id="emoji-search"' in UI_HTML
     assert "renderEmojiPicker" in UI_HTML
     assert "__EMOJI_CATALOG__" not in UI_HTML
+    assert "last_seen" not in UI_HTML

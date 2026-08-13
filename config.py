@@ -61,7 +61,7 @@ STREET_DISTANCE = 0.002
 
 # --- Behavior ---
 min_distance_refresh_ft = float(_cfg["min_distance_refresh_ft"])
-log_file = _cfg["log_file"]
+history_database = _cfg.get("history_database", "mesh_history.sqlite3")
 
 # Friend filtering
 friends_file = _cfg.get("friends_file", "friends.json")

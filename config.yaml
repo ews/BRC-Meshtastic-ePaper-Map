@@ -58,7 +58,7 @@ friends_file: "friends.json"
 friend_server_port: 8051
 
 # --- Logging ---
-log_file: "burners.log"
+history_database: "mesh_history.sqlite3"
 
 # --- Points of Interest ---
 points_of_interest:

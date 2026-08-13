@@ -26,7 +26,6 @@ Each friend is stored with the following fields:
 | `notes` | string | | Free-text notes (camp name, vehicle, etc.) |
 | `color` | string | | Tag color hint for future use (e.g. `"red"`, `"blue"`) |
 | `added_at` | ISO-8601 | auto | When the friend was added |
-| `last_seen` | ISO-8601 | auto | Last time this node's position was received |
 
 ### 1.2 Node ID as primary key
 
@@ -97,17 +96,17 @@ def filter_friends(burners, friends):
     }
 ```
 
-### 2.3 Updating last_seen
+### 2.3 Friend-list writes
 
-After filtering, for each displayed friend, update `friends.json` with
-`last_seen = now()`. Write no more than once per poll cycle (batch update).
+`friends.json` is only written when a friend is added, edited, removed, or
+migrated. Position and chat history belongs in `mesh_history.sqlite3`.
 
 ### 2.4 Edge cases
 
 | Case | Behavior |
 | ------ | ---------- |
 | Empty friends list | Show nothing (not "show everyone") — explicit opt-in |
-| Node appears with matching ID but different name | Use stored `name` for display; optionally update `last_seen` |
+| Node appears with matching ID but different name | Use stored `name` for display |
 | Friend's node hasn't been heard from in N hours | Show last known position with "(stale)" indicator or greyed out |
 | Duplicate node_ids in friends.json | Last one wins; validation rejects duplicates on save |
 
@@ -233,7 +232,7 @@ Single Python file `friend_server.py` containing:
 BRC-Meshtastic-ePaper-Map/
 ├── friends.json           ← friend database (created on first run)
 ├── friend_server.py       ← HTTP server + FriendStore
-├── friend_filter.py       ← filter_friends() + last_seen updater
+├── history_store.py       ← SQLite position and chat history
 ├── display_map.py         ← updated to call filter_friends()
 ├── calibrate.py           ← unchanged
 ├── config.yaml            ← add friends_file and friend_server_port
@@ -246,6 +245,7 @@ BRC-Meshtastic-ePaper-Map/
 # Friend filtering
 friends_file: "friends.json"
 friend_server_port: 8051
+history_database: "mesh_history.sqlite3"
 ```
 
 ---
@@ -253,7 +253,7 @@ friend_server_port: 8051
 ## 5. Thread Safety
 
 The `friends.json` file is read by the main display loop (every ~60 seconds)
-and written by the web API (on user action). To prevent corruption:
+and written by the web API only on user action. To prevent corruption:
 
 1. `FriendStore` uses a `threading.Lock` for all read/write operations
 2. The display loop calls `friend_store.get_friends()` to get a snapshot
@@ -275,10 +275,11 @@ Updated `main()` in `display_map.py`:
 6. Main loop:
    a. Poll mesh nodes
    b. Convert GPS coordinates
-   c. Filter to friends only
-   d. Update last_seen timestamps
-   e. If positions changed, render to ePaper
-   f. Sleep
+   c. Save all node positions to SQLite
+   d. Filter to friends only for display
+   e. If displayed positions changed, render to ePaper
+   f. Save incoming text messages to SQLite via the receive callback
+   g. Sleep
 7. Shutdown: stop friend_server thread, close mesh interface
 ```
 

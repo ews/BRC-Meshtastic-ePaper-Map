@@ -56,6 +56,7 @@ BRC-Meshtastic-ePaper-Map/
 ├── renderer.py           # PIL drawing: dots, pentagon, labels, test coords
 ├── friend_store.py       # Thread-safe JSON friend database
 ├── friend_server.py      # REST API + web UI for friend management (port 8051)
+├── history_store.py      # SQLite position and received-chat history
 │
 ├── calibrate.py          # Web calibration tool (port 8050)
 ├── Makefile              # npm-style: make install, make test, make calibrate
@@ -179,6 +180,7 @@ brc:
 ```yaml
 friends_file: "friends.json"
 friend_server_port: 8051
+history_database: "mesh_history.sqlite3"
 ```
 
 ---
@@ -238,7 +240,9 @@ Two panels:
 
 ### Storage
 
-`friends.json` — thread-safe JSON with atomic writes. Each friend record:
+`friends.json` is only the display allowlist and icon configuration. It is
+written when you add, edit, or remove a friend—not on every mesh poll. Each
+friend record looks like:
 
 ```json
 {
@@ -247,9 +251,29 @@ Two panels:
   "short_name": "AL",
   "emoji": "♥",
   "notes": "Camp Quark @ 7:30 & C",
-  "added_at": "2026-08-20T12:00:00Z",
-  "last_seen": "2026-08-20T14:30:00Z"
+  "added_at": "2026-08-20T12:00:00Z"
 }
+```
+
+### Position and chat history
+
+`mesh_history.sqlite3` stores history independently of the display allowlist:
+
+- `positions` contains GPS reports from every visible mesh node, including
+  node/name, source time, latitude, longitude, altitude, and BRC address.
+- `messages` contains every received Meshtastic text packet, including sender,
+  recipient, channel, receive time, text, and MQTT status.
+
+Duplicate position reports and packet IDs are ignored. Position writes are
+batched into one SQLite transaction per 60-second poll; chat is saved as it is
+received. SQLite uses WAL mode so readers can inspect history while the map is
+running. For example:
+
+```bash
+sqlite3 mesh_history.sqlite3 \
+  'SELECT source_time,name,latitude,longitude,brc_address FROM positions ORDER BY source_time DESC LIMIT 20;'
+sqlite3 mesh_history.sqlite3 \
+  'SELECT received_at,sender_name,text FROM messages ORDER BY id DESC LIMIT 20;'
 ```
 
 ### Bypass filtering

@@ -74,7 +74,6 @@ class FriendStore:
                 "notes": notes.strip(),
                 "emoji": emoji,
                 "added_at": _now_iso(),
-                "last_seen": None,
             }
             self._friends.append(record)
             self._save()
@@ -116,20 +115,6 @@ class FriendStore:
                 raise KeyError(f"Friend {node_id} not found")
             self._save()
 
-    def update_last_seen(self, node_id: str) -> None:
-        """Update last_seen timestamp for a friend (no-op if unknown)."""
-        with self._lock:
-            for f in self._friends:
-                if f["node_id"] == node_id:
-                    f["last_seen"] = _now_iso()
-                    # Don't save on every poll — only on explicit writes
-                    return
-
-    def flush_last_seen(self) -> None:
-        """Persist any pending last_seen updates to disk."""
-        with self._lock:
-            self._save()
-
     def count(self) -> int:
         """Return number of friends."""
         with self._lock:
@@ -144,6 +129,10 @@ class FriendStore:
                 data = json.loads(self._path.read_text())
                 self._friends = data.get("friends", [])
                 changed = self._assign_missing_emojis()
+                for friend in self._friends:
+                    if "last_seen" in friend:
+                        del friend["last_seen"]
+                        changed = True
                 if changed:
                     self._save()
             except (json.JSONDecodeError, KeyError):

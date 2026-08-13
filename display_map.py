@@ -6,12 +6,13 @@ WaveShare ePaper display (or desktop window in --screen mode).
 
 import argparse
 import time
-from datetime import datetime
 
 from PIL import Image, ImageDraw
+from pubsub import pub
 
 import config as c
 from coordinates import distance_ft, gps_to_image_coordinates
+from history_store import HistoryStore, sender_name_for_packet
 from mesh import (
     add_bm_coordinates,
     get_mesh_info,
@@ -177,6 +178,8 @@ def main(args):
         epd = _init_epd()
 
     interface = None
+    history = HistoryStore(c.history_database)
+    chat_callback = None
     old_coords = {}
     needs_refresh = False
 
@@ -189,6 +192,14 @@ def main(args):
 
         if not args.debug:
             interface = connect_mesh_serial()
+
+            def save_chat(packet, interface):
+                name = sender_name_for_packet(packet, interface)
+                if history.record_message(packet, name):
+                    logging.info("saved chat message from %s", name or "unknown")
+
+            chat_callback = save_chat
+            pub.subscribe(chat_callback, "meshtastic.receive.text")
             if friend_srv is not None:
                 friend_srv.set_mesh(interface)
 
@@ -196,26 +207,16 @@ def main(args):
             if not args.debug:
                 mesh = get_mesh_info(interface)
                 burners = add_bm_coordinates(mesh)
+                saved = history.record_positions(burners)
+                if saved:
+                    logging.info("saved %d new position reports", saved)
 
                 # Filter to friends only
                 if friend_store is not None:
                     burners, friends = _filter_friend_burners(burners, friend_store)
-                    # Update last_seen for displayed friends
-                    for data in burners.values():
-                        friend_store.update_last_seen(data["node_id"])
-                    friend_store.flush_last_seen()
                     logging.debug(
                         "showing %d/%d friends", len(burners), len(friends)
                     )
-
-                if burners:
-                    with open(c.log_file, "a") as f:
-                        for name, data in burners.items():
-                            f.write(
-                                f"{datetime.now().isoformat()} {name} "
-                                f"{data['coordinates']}\n"
-                            )
-                            f.flush()
 
                 if not equal_bm_coordinates(burners, old_coords):
                     old_coords = burners
@@ -233,8 +234,11 @@ def main(args):
             time.sleep(c.sleep_seconds)
 
     finally:
+        if chat_callback is not None:
+            pub.unsubscribe(chat_callback, "meshtastic.receive.text")
         if interface is not None:
             interface.close()
+        history.close()
         if epd is not None:
             epd.sleep()
         logging.info("shutdown complete")

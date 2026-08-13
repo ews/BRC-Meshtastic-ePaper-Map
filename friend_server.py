@@ -50,7 +50,6 @@ button.green:hover{background:#6eecc3}
 .add-form input:focus{border-color:#e94560;outline:none}
 .add-form label{font-size:10px;color:#aaa}
 .empty{color:#666;font-size:12px;padding:20px;text-align:center}
-.last-seen{font-size:9px;color:#666}
 .emoji-button{font-size:20px;line-height:24px;min-width:38px;background:#0f3460;padding:2px 8px}
 .emoji-button.auto{font-size:10px;color:#aaa}
 .modal{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;z-index:10}
@@ -150,7 +149,7 @@ function renderFriends(friends) {
     el.innerHTML = '<div class="empty">No friends yet. Add one above or pick from Mesh Nodes →</div>';
     return;
   }
-  let html = '<table><tr><th>Emoji</th><th>Name</th><th>Short</th><th>Node ID</th><th>Notes</th><th>Last Seen</th><th></th></tr>';
+  let html = '<table><tr><th>Emoji</th><th>Name</th><th>Short</th><th>Node ID</th><th>Notes</th><th></th></tr>';
   friends.forEach(f => {
     html += `<tr>
       <td><button class="emoji-button" title="Change emoji" onclick="openEmojiPicker('${f.node_id}')">${esc(f.emoji)}</button></td>
@@ -158,7 +157,6 @@ function renderFriends(friends) {
       <td><input value="${esc(f.short_name||'')}" onchange="updateFriend('${f.node_id}','short_name',this.value)" style="width:50px" maxlength="4"></td>
       <td><span class="node-id">${esc(f.node_id)}</span></td>
       <td><input value="${esc(f.notes||'')}" onchange="updateFriend('${f.node_id}','notes',this.value)"></td>
-      <td class="last-seen">${f.last_seen ? f.last_seen.slice(11,16)+' '+f.last_seen.slice(5,10) : 'never'}</td>
       <td><button onclick="removeFriend('${f.node_id}')" class="dim">✕</button></td>
     </tr>`;
   });
