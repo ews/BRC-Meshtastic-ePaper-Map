@@ -281,9 +281,10 @@ sudo raspi-config
 ### Run
 
 ```bash
-.venv/bin/python3 display_map.py
+make run-map
 ```
 
+The base map is displayed immediately, before Meshtastic connection retries.
 The friend management server starts automatically at port 8051.
 Access it from your phone at `http://<pi-ip>:8051`.
 

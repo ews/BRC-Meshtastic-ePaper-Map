@@ -131,6 +131,14 @@ def _init_epd():
     return epd
 
 
+def _display_frame(frame, screen, epd):
+    """Send one completed frame to the desktop preview or e-paper."""
+    if screen:
+        frame.show()
+    elif epd is not None:
+        epd.display(epd.getbuffer(frame))
+
+
 def main(args):
     base = _load_map()
     frame, draw = _new_frame(base)
@@ -153,20 +161,23 @@ def main(args):
         epd = _init_epd()
 
     interface = None
-    if not args.debug:
-        interface = connect_mesh_serial()
-        if friend_srv is not None:
-            friend_srv.set_mesh(interface)
-
     old_coords = {}
-    needs_refresh = True
+    needs_refresh = False
 
     try:
+        # Put useful content on the panel before mesh discovery/retries can block.
+        if args.debug:
+            frame = _draw_debug_overlay(base)
+        logging.info("displaying initial map")
+        _display_frame(frame, args.screen, epd)
+
+        if not args.debug:
+            interface = connect_mesh_serial()
+            if friend_srv is not None:
+                friend_srv.set_mesh(interface)
+
         while True:
-            if args.debug:
-                if needs_refresh:
-                    frame = _draw_debug_overlay(base)
-            else:
+            if not args.debug:
                 mesh = get_mesh_info(interface)
                 burners = add_bm_coordinates(mesh)
 
@@ -204,10 +215,7 @@ def main(args):
                     logging.debug("points are not really moving")
 
             if needs_refresh:
-                if args.screen:
-                    frame.show()
-                elif epd is not None:
-                    epd.display(epd.getbuffer(frame))
+                _display_frame(frame, args.screen, epd)
                 needs_refresh = False
 
             logging.debug("sleeping %ds", c.sleep_seconds)

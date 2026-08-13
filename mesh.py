@@ -24,12 +24,20 @@ def time_from_timestamp(timestamp):
 
 
 def connect_serial():
-    """Connect to Meshtastic over serial with exponential backoff retry."""
+    """Connect over serial, falling back to TCP localhost when none is found."""
     delay = _RETRY_BASE_SEC
     while True:
         try:
             logging.info("connecting to Meshtastic over serial...")
             iface = meshtastic.serial_interface.SerialInterface()
+            # Some Meshtastic releases print that they are attempting TCP when
+            # no serial port exists, but return an uninitialized SerialInterface
+            # instead. Detect that object and perform the fallback ourselves.
+            if not hasattr(iface, "nodes"):
+                logging.info("no serial radio found; trying TCP at localhost")
+                iface = meshtastic.tcp_interface.TCPInterface("localhost")
+            if not hasattr(iface, "nodes"):
+                raise ConnectionError("Meshtastic interface has no node database")
             logging.info("connected")
             return iface
         except Exception as e:

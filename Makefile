@@ -7,7 +7,7 @@ VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
 _VENV_FLAG := $(VENV)/.created
 
-.PHONY: all install install-pi check-venv test calibrate run test-screen pytest clean help
+.PHONY: all install install-pi check-venv test calibrate run run-map test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -52,6 +52,9 @@ calibrate: check-venv  ## launch calibration tool → http://localhost:8050
 	$(VENV_PYTHON) calibrate.py
 
 run: test  ## alias for test
+
+run-map: check-venv  ## display the live map on ePaper and connect to Meshtastic
+	$(VENV_PYTHON) display_map.py
 
 # ── ePaper hardware test (Raspberry Pi only) ──────────────────
 test-screen: check-venv  ## clear ePaper and draw test pattern
