@@ -118,9 +118,12 @@ No ePaper or Meshtastic radio needed. Works like `npm install`:
 cd BRC-Meshtastic-ePaper-Map
 make install   # creates .venv, installs package in editable mode
 make test      # runs display in --debug --screen mode
-make test-full-mockup  # opens a map with 5–6 random mock people
-make test-full-mockup-epaper  # sends the populated mockup to the E6 panel
+make test-full-mockup  # opens 15 mock burners positioned on open playa
+make test-full-mockup-epaper  # moves them and refreshes E6 every minute
 ```
+
+The e-paper mockup keeps the same 15 burner identities and emoji while moving
+their positions around open playa every 60 seconds. Press `Ctrl+C` to stop it.
 
 A window opens showing the BRC map with test point labels. See all targets:
 

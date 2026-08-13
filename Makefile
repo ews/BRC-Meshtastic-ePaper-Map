@@ -48,11 +48,11 @@ check-venv:
 test: check-venv  ## run in --debug --screen mode (no hardware needed)
 	$(VENV_PYTHON) display_map.py --debug --screen
 
-test-full-mockup: check-venv  ## show map with 5–6 random mock people
+test-full-mockup: check-venv  ## show map with 15 mock burners on open playa
 	$(VENV_PYTHON) tools/full_mockup.py
 
-test-full-mockup-epaper: check-venv  ## show populated mockup on E6 ePaper
-	$(VENV_PYTHON) tools/full_mockup.py --epaper
+test-full-mockup-epaper: check-venv  ## refresh moving mock burners every minute
+	$(VENV_PYTHON) tools/full_mockup.py --epaper --interval 60
 
 calibrate: check-venv  ## launch calibration tool → http://localhost:8050
 	$(VENV_PYTHON) calibrate.py

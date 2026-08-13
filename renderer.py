@@ -90,9 +90,11 @@ def assign_burner_emojis(burners):
 
 def draw_node_labels(burners, draw, colors=None):
     """Draw matching emoji markers and detail-list entries for all burners."""
-    font = ImageFont.truetype("./media/Font.ttc", 12)
+    dense_list = len(burners) > 10
+    font = ImageFont.truetype("./media/Font.ttc", 10 if dense_list else 12)
     map_font = ImageFont.truetype("./media/Font.ttc", 18)
-    text_start_height = 20
+    text_start_height = 8 if dense_list else 20
+    text_step = 11 if dense_list else 14
     colors = colors or (RED,)
     assign_burner_emojis(burners)
 
@@ -114,7 +116,7 @@ def draw_node_labels(burners, draw, colors=None):
             f"at {_time_str(burner['coordinates']['time'])}"
         )
         draw.text((10, text_start_height), detail, font=font, fill=color)
-        text_start_height += 14
+        text_start_height += text_step
 
     return draw
 

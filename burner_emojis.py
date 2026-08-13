@@ -6,6 +6,7 @@ from hashlib import sha256
 # the friend manager's searchable picker.
 EMOJI_OPTIONS = (
     ("★", "Star", "star favorite featured"),
+    ("☆", "Outline Star", "outline star favorite"),
     ("☎", "Phone", "phone telephone call"),
     ("♠", "Spade", "spade cards suit"),
     ("♥", "Heart", "heart love favorite"),

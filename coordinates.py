@@ -75,13 +75,16 @@ def gps_to_burning_man(lat, lon):
     # Convert distance to street name
     remaining_distance = distance - c.distance_man_esplanade
 
-    for i, street_distance in enumerate(c.DISTANCE_STREETS):
-        if remaining_distance < street_distance:
-            street_name = c.STREET_NAMES[i]
-            break
-        remaining_distance -= street_distance
+    if remaining_distance < 0:
+        street_name = "Open Playa"
     else:
-        street_name = f"{distance:.0f}ft"
+        for i, street_distance in enumerate(c.DISTANCE_STREETS):
+            if remaining_distance < street_distance:
+                street_name = c.STREET_NAMES[i]
+                break
+            remaining_distance -= street_distance
+        else:
+            street_name = f"{distance:.0f}ft"
 
     # Format time string
     str_clock_hour = f"{clock_hour:02d}"
