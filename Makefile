@@ -7,10 +7,10 @@ VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
 _VENV_FLAG := $(VENV)/.created
 
-.PHONY: all install test calibrate run clean help
+.PHONY: all install install-pi check-venv test calibrate run test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
-all: install test  ## set up venv, install deps, run test
+all: pytest  ## run unit tests using the existing environment
 
 # ── install (npm-style: single command to set up everything) ───
 install: $(_VENV_FLAG)  ## create venv and install all dependencies
@@ -37,21 +37,28 @@ install-pi:  ## install with system Pi packages (avoids compiling from source)
 	@echo "   Run 'make test-screen' to verify ePaper connection."
 	@echo ""
 
+# ── environment check (never installs dependencies) ───────────
+check-venv:
+	@if [ ! -x "$(VENV_PYTHON)" ]; then \
+		echo "❌ Virtual environment not found. Run 'make install' or 'make install-pi' first."; \
+		exit 1; \
+	fi
+
 # ── test / run ─────────────────────────────────────────────────
-test: install  ## run in --debug --screen mode (no hardware needed)
+test: check-venv  ## run in --debug --screen mode (no hardware needed)
 	$(VENV_PYTHON) display_map.py --debug --screen
 
-calibrate: install  ## launch calibration tool → http://localhost:8050
+calibrate: check-venv  ## launch calibration tool → http://localhost:8050
 	$(VENV_PYTHON) calibrate.py
 
 run: test  ## alias for test
 
 # ── ePaper hardware test (Raspberry Pi only) ──────────────────
-test-screen: install  ## clear ePaper and draw test pattern
+test-screen: check-venv  ## clear ePaper and draw test pattern
 	$(VENV_PYTHON) tools/test_screen.py
 
 # ── tests ──────────────────────────────────────────────────────
-pytest: install  ## run unit tests
+pytest: check-venv  ## run unit tests
 	$(VENV_PYTHON) -m pytest tests/ -v
 
 # ── clean ──────────────────────────────────────────────────────
