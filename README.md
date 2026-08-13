@@ -217,7 +217,7 @@ An empty friends list shows nothing — explicit opt-in.
 Two panels:
 
 - **Left — My Friends**: List with inline name/short-name/notes editing,
-  add form, delete buttons
+  searchable emoji picker, add form, and delete buttons
 - **Right — Mesh Nodes**: Live mesh nodes with **"+ Add"** buttons to
   quickly whitelist a node
 
@@ -226,8 +226,8 @@ Two panels:
 | Method | Path | Description |
 | -------- | ------ | ------------- |
 | `GET` | `/api/friends` | List all friends |
-| `POST` | `/api/friends` | Add a friend `{"node_id":"!abcd","name":"Alice"}` |
-| `PUT` | `/api/friends/<id>` | Edit fields `{"name":"New name"}` |
+| `POST` | `/api/friends` | Add a friend; an e-paper-safe emoji is assigned by default |
+| `PUT` | `/api/friends/<id>` | Edit name, short name, notes, or emoji |
 | `DELETE` | `/api/friends/<id>` | Remove a friend |
 | `GET` | `/api/nodes` | Live mesh nodes with `is_friend` flag |
 
@@ -240,6 +240,7 @@ Two panels:
   "node_id": "!abcd1234",
   "name": "Alice",
   "short_name": "AL",
+  "emoji": "♥",
   "notes": "Camp Quark @ 7:30 & C",
   "added_at": "2026-08-20T12:00:00Z",
   "last_seen": "2026-08-20T14:30:00Z"

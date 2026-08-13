@@ -22,6 +22,7 @@ Each friend is stored with the following fields:
 | `node_id` | string (hex) | ✅ | Meshtastic node ID (e.g. `!abcd1234`) — stable unique identifier |
 | `name` | string | ✅ | Display name for the ePaper (e.g. `"Alice"`) |
 | `short_name` | string | | Abbreviated label (e.g. `"AL"`) — falls back to first 2 chars of name |
+| `emoji` | string | ✅ | Persistent e-paper-safe symbol selected in the searchable picker |
 | `notes` | string | | Free-text notes (camp name, vehicle, etc.) |
 | `color` | string | | Tag color hint for future use (e.g. `"red"`, `"blue"`) |
 | `added_at` | ISO-8601 | auto | When the friend was added |
@@ -47,6 +48,7 @@ A JSON file: `friends.json` in the project root.
       "node_id": "!abcd1234",
       "name": "Alice",
       "short_name": "AL",
+      "emoji": "♥",
       "notes": "Camp Quark @ 7:30 & C",
       "added_at": "2026-08-20T12:00:00Z"
     }
@@ -153,7 +155,7 @@ Returns the full friends list as JSON.
 Add a new friend. Body:
 
 ```json
-{"node_id": "!abcd1234", "name": "Alice", "notes": "Camp Quark"}
+{"node_id": "!abcd1234", "name": "Alice", "notes": "Camp Quark", "emoji": "♥"}
 ```
 
 Returns `201` with the created record. Returns `409` if node_id already exists.
@@ -163,7 +165,7 @@ Returns `201` with the created record. Returns `409` if node_id already exists.
 Edit an existing friend. Body can include any subset of fields:
 
 ```json
-{"name": "Alice (updated)", "notes": "Moved to 9:00 & D"}
+{"name": "Alice (updated)", "notes": "Moved to 9:00 & D", "emoji": "★"}
 ```
 
 Returns `200` with updated record. Returns `404` if not found.

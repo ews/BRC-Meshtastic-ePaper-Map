@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+from burner_emojis import default_emoji, validate_emoji
+
 
 class FriendStore:
     """CRUD operations on a JSON-backed friend database.
@@ -46,7 +48,9 @@ class FriendStore:
 
     # ── public write ───────────────────────────────────────────
 
-    def add(self, node_id: str, name: str, notes: str = "") -> dict:
+    def add(
+        self, node_id: str, name: str, notes: str = "", emoji: str | None = None
+    ) -> dict:
         """Add a friend. Raises ValueError if node_id already exists."""
         node_id = node_id.strip()
         if not node_id.startswith("!") or len(node_id) < 4:
@@ -55,11 +59,20 @@ class FriendStore:
         with self._lock:
             if any(f["node_id"] == node_id for f in self._friends):
                 raise ValueError(f"Friend with node_id {node_id} already exists")
+            used_emojis = {f["emoji"] for f in self._friends}
+            emoji = (
+                validate_emoji(emoji)
+                if emoji
+                else default_emoji(node_id, used_emojis)
+            )
+            if emoji in used_emojis:
+                raise ValueError(f"Emoji {emoji} is already assigned to another friend")
             record = {
                 "node_id": node_id,
                 "name": name.strip() or node_id,
                 "short_name": (name.strip()[:4] if name.strip() else node_id[-4:]),
                 "notes": notes.strip(),
+                "emoji": emoji,
                 "added_at": _now_iso(),
                 "last_seen": None,
             }
@@ -70,15 +83,25 @@ class FriendStore:
     def update(self, node_id: str, **fields) -> dict:
         """Update fields on an existing friend. Returns updated record.
 
-        Allowed fields: name, short_name, notes.
+        Allowed fields: name, short_name, notes, emoji.
         Raises KeyError if node_id not found.
         """
-        allowed = {"name", "short_name", "notes"}
+        allowed = {"name", "short_name", "notes", "emoji"}
         updates = {k: v for k, v in fields.items() if k in allowed}
 
         with self._lock:
             for f in self._friends:
                 if f["node_id"] == node_id:
+                    if "emoji" in updates:
+                        emoji = validate_emoji(updates["emoji"])
+                        if any(
+                            other["node_id"] != node_id
+                            and other.get("emoji") == emoji
+                            for other in self._friends
+                        ):
+                            raise ValueError(
+                                f"Emoji {emoji} is already assigned to another friend"
+                            )
                     f.update(updates)
                     self._save()
                     return dict(f)
@@ -120,16 +143,37 @@ class FriendStore:
             try:
                 data = json.loads(self._path.read_text())
                 self._friends = data.get("friends", [])
+                changed = self._assign_missing_emojis()
+                if changed:
+                    self._save()
             except (json.JSONDecodeError, KeyError):
                 self._friends = []
         else:
             self._friends = []
             self._save()
 
+    def _assign_missing_emojis(self) -> bool:
+        """Migrate missing, invalid, or duplicate emoji values in place."""
+        changed = False
+        used = set()
+        for friend in sorted(self._friends, key=lambda item: item["node_id"]):
+            emoji = friend.get("emoji")
+            if emoji in used:
+                emoji = None
+            try:
+                validate_emoji(emoji)
+            except ValueError:
+                emoji = default_emoji(friend["node_id"], used)
+            if friend.get("emoji") != emoji:
+                friend["emoji"] = emoji
+                changed = True
+            used.add(emoji)
+        return changed
+
     def _save(self) -> None:
         """Atomic write: temp file → rename."""
         tmp = self._path.with_suffix(".tmp")
-        data = {"version": 1, "friends": self._friends}
+        data = {"version": 2, "friends": self._friends}
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
         os.replace(tmp, self._path)
 

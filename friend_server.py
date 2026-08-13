@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from burner_emojis import emoji_catalog
 from friend_store import FriendStore
 
 ROOT = Path(__file__).resolve().parent
@@ -50,6 +51,17 @@ button.green:hover{background:#6eecc3}
 .add-form label{font-size:10px;color:#aaa}
 .empty{color:#666;font-size:12px;padding:20px;text-align:center}
 .last-seen{font-size:9px;color:#666}
+.emoji-button{font-size:20px;line-height:24px;min-width:38px;background:#0f3460;padding:2px 8px}
+.emoji-button.auto{font-size:10px;color:#aaa}
+.modal{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;z-index:10}
+.modal.hidden{display:none}
+.picker{width:min(390px,92vw);background:#16213e;border:1px solid #4ecca3;border-radius:8px;padding:14px;box-shadow:0 8px 30px #000}
+.picker-head{display:flex;gap:8px;margin-bottom:10px}
+.picker-head input{flex:1;background:#0f3460;border:1px solid #444;color:#eee;padding:8px;font-family:monospace;border-radius:3px}
+.emoji-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:7px;max-height:260px;overflow-y:auto}
+.emoji-option{background:#0f3460;font-size:22px;padding:8px 2px}
+.emoji-option:hover{background:#1a5276}
+.picker-empty{grid-column:1/-1;color:#888;text-align:center;padding:16px;font-size:11px}
 </style>
 </head>
 <body>
@@ -74,6 +86,10 @@ button.green:hover{background:#6eecc3}
         <label>Notes</label>
         <input id="add-notes" placeholder="Camp @ 7:30 & C" style="width:160px">
       </div>
+      <div>
+        <label>Emoji</label>
+        <button id="add-emoji" class="emoji-button auto" onclick="openEmojiPicker(null)">Auto</button>
+      </div>
       <button onclick="addFriend()">Add</button>
     </div>
 
@@ -87,8 +103,21 @@ button.green:hover{background:#6eecc3}
   </div>
 </main>
 
+<div id="emoji-modal" class="modal hidden" onclick="modalBackground(event)">
+  <div class="picker">
+    <div class="picker-head">
+      <input id="emoji-search" placeholder="Search emoji…" oninput="renderEmojiPicker()">
+      <button class="dim" onclick="closeEmojiPicker()">✕</button>
+    </div>
+    <div id="emoji-grid" class="emoji-grid"></div>
+  </div>
+</div>
+
 <script>
 const BASE = '';
+const EMOJIS = __EMOJI_CATALOG__;
+let addEmoji = '';
+let pickerNodeId = null;
 
 function status(msg) { document.getElementById('status').textContent = msg; }
 
@@ -121,9 +150,10 @@ function renderFriends(friends) {
     el.innerHTML = '<div class="empty">No friends yet. Add one above or pick from Mesh Nodes →</div>';
     return;
   }
-  let html = '<table><tr><th>Name</th><th>Short</th><th>Node ID</th><th>Notes</th><th>Last Seen</th><th></th></tr>';
+  let html = '<table><tr><th>Emoji</th><th>Name</th><th>Short</th><th>Node ID</th><th>Notes</th><th>Last Seen</th><th></th></tr>';
   friends.forEach(f => {
     html += `<tr>
+      <td><button class="emoji-button" title="Change emoji" onclick="openEmojiPicker('${f.node_id}')">${esc(f.emoji)}</button></td>
       <td><input value="${esc(f.name)}" onchange="updateFriend('${f.node_id}','name',this.value)"></td>
       <td><input value="${esc(f.short_name||'')}" onchange="updateFriend('${f.node_id}','short_name',this.value)" style="width:50px" maxlength="4"></td>
       <td><span class="node-id">${esc(f.node_id)}</span></td>
@@ -142,12 +172,67 @@ async function addFriend() {
   const notes = document.getElementById('add-notes').value.trim();
   if (!nid || !name) { status('⚠ Need Node ID and Name'); return; }
   try {
-    await api('POST', '/api/friends', {node_id:nid, name, notes});
+    const body = {node_id:nid, name, notes};
+    if (addEmoji) body.emoji = addEmoji;
+    await api('POST', '/api/friends', body);
     document.getElementById('add-id').value = '';
     document.getElementById('add-name').value = '';
     document.getElementById('add-notes').value = '';
+    addEmoji = '';
+    const emojiButton = document.getElementById('add-emoji');
+    emojiButton.textContent = 'Auto';
+    emojiButton.classList.add('auto');
     loadFriends();
     refreshNodes();
+  } catch(e) { status('⚠ ' + e.message); }
+}
+
+// ── Searchable emoji picker ───────────────────────────────────
+function openEmojiPicker(nodeId) {
+  pickerNodeId = nodeId;
+  document.getElementById('emoji-search').value = '';
+  document.getElementById('emoji-modal').classList.remove('hidden');
+  renderEmojiPicker();
+  setTimeout(() => document.getElementById('emoji-search').focus(), 0);
+}
+
+function closeEmojiPicker() {
+  document.getElementById('emoji-modal').classList.add('hidden');
+  pickerNodeId = null;
+}
+
+function modalBackground(event) {
+  if (event.target.id === 'emoji-modal') closeEmojiPicker();
+}
+
+function renderEmojiPicker() {
+  const query = document.getElementById('emoji-search').value.trim().toLowerCase();
+  const matches = EMOJIS.filter(e =>
+    !query || `${e.symbol} ${e.name} ${e.keywords}`.toLowerCase().includes(query)
+  );
+  const grid = document.getElementById('emoji-grid');
+  if (!matches.length) {
+    grid.innerHTML = '<div class="picker-empty">No matching emoji</div>';
+    return;
+  }
+  grid.innerHTML = matches.map(e =>
+    `<button class="emoji-option" title="${esc(e.name)}" onclick="chooseEmoji('${e.symbol}')">${e.symbol}</button>`
+  ).join('');
+}
+
+async function chooseEmoji(symbol) {
+  try {
+    if (pickerNodeId === null) {
+      addEmoji = symbol;
+      const button = document.getElementById('add-emoji');
+      button.textContent = symbol;
+      button.classList.remove('auto');
+    } else {
+      await api('PUT', '/api/friends/' + encodeURIComponent(pickerNodeId), {emoji:symbol});
+      await loadFriends();
+      status('✓ Emoji updated');
+    }
+    closeEmojiPicker();
   } catch(e) { status('⚠ ' + e.message); }
 }
 
@@ -215,7 +300,7 @@ refreshNodes();
 setInterval(refreshNodes, 30000);
 </script>
 </body>
-</html>"""
+</html>""".replace("__EMOJI_CATALOG__", json.dumps(emoji_catalog(), ensure_ascii=False))
 
 
 class FriendServer(threading.Thread):
@@ -273,6 +358,7 @@ def _make_handler(store, mesh_iface):
                         node_id=body.get("node_id", ""),
                         name=body.get("name", ""),
                         notes=body.get("notes", ""),
+                        emoji=body.get("emoji") or None,
                     )
                     self._serve_json(record, status=201)
                 except ValueError as e:
@@ -288,6 +374,8 @@ def _make_handler(store, mesh_iface):
                     self._serve_json(record)
                 except KeyError:
                     self._error(404, "not found")
+                except ValueError as e:
+                    self._error(409, str(e))
 
         def do_DELETE(self):
             path = urlparse(self.path).path

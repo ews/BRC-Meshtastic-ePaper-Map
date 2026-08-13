@@ -27,6 +27,13 @@ def test_new_node_requests_refresh():
     assert not display_map.equal_bm_coordinates({"Alice": _node()}, {})
 
 
+def test_changed_emoji_requests_refresh_without_movement():
+    old = {"Alice": {**_node(), "emoji": "♥"}}
+    new = {"Alice": {**_node(), "emoji": "★"}}
+
+    assert not display_map.equal_bm_coordinates(new, old)
+
+
 def test_burners_get_stable_distinct_emojis():
     burners = {
         "Alice": _node(),
@@ -50,6 +57,19 @@ def test_emoji_labels_render_on_list_and_map():
 
     assert burners["Alice"]["emoji"]
     assert ImageChops.difference(frame, blank).getbbox() is not None
+
+
+def test_friend_filter_merges_persistent_emoji():
+    class Store:
+        def get_friends(self):
+            return [{"node_id": "!1234", "emoji": "♥"}]
+
+    filtered, _ = display_map._filter_friend_burners(
+        {"Alice": _node(), "Unknown": {**_node(), "node_id": "!9999"}}, Store()
+    )
+
+    assert list(filtered) == ["Alice"]
+    assert filtered["Alice"]["emoji"] == "♥"
 
 
 def test_map_frame_is_rgb_and_has_supported_dimensions():

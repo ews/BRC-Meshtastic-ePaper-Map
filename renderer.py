@@ -5,11 +5,11 @@ and the debug test coordinate overlay.
 """
 
 import math
-from hashlib import sha256
 
 from PIL import ImageFont
 
 import config as c
+from burner_emojis import default_emoji
 from coordinates import gps_to_burning_man, gps_to_image_coordinates
 
 logging = c.logging
@@ -19,26 +19,6 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
-
-# Monochrome emoji-style symbols covered by the bundled font. These survive
-# Pillow rendering and E6 palette conversion without requiring a color-emoji
-# font, which is important on the Raspberry Pi image.
-BURNER_EMOJIS = (
-    "★",
-    "☎",
-    "♠",
-    "♥",
-    "♦",
-    "♣",
-    "♪",
-    "✧",
-    "♔",
-    "♕",
-    "♖",
-    "♗",
-    "♘",
-    "♙",
-)
 
 # --- test coordinates from official 2026 GIS data ---
 # Source: innovate-GIS-data/2026/GeoJSON/
@@ -101,12 +81,8 @@ def assign_burner_emojis(burners):
         if burner.get("emoji"):
             used.add(burner["emoji"])
             continue
-        identity = burner.get("node_id", name).encode("utf-8")
-        start = sha256(identity).digest()[0] % len(BURNER_EMOJIS)
-        for offset in range(len(BURNER_EMOJIS)):
-            emoji = BURNER_EMOJIS[(start + offset) % len(BURNER_EMOJIS)]
-            if emoji not in used:
-                break
+        identity = burner.get("node_id", name)
+        emoji = default_emoji(identity, used)
         burner["emoji"] = emoji
         used.add(emoji)
     return burners

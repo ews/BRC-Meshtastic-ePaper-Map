@@ -40,6 +40,9 @@ def equal_bm_coordinates(new, old):
         return False
 
     for burner in new:
+        if new[burner].get("emoji") != old[burner].get("emoji"):
+            logging.debug("emoji changed for %s", burner)
+            return False
         if "latitude" in new[burner].get("coordinates", {}):
             dist = distance_ft(
                 (
@@ -139,6 +142,17 @@ def _display_frame(frame, screen, epd):
         epd.display(epd.getbuffer(frame))
 
 
+def _filter_friend_burners(burners, friend_store):
+    """Filter mesh burners and merge their persistent friend emoji."""
+    friends = {friend["node_id"]: friend for friend in friend_store.get_friends()}
+    filtered = {
+        name: data for name, data in burners.items() if data.get("node_id") in friends
+    }
+    for data in filtered.values():
+        data["emoji"] = friends[data["node_id"]]["emoji"]
+    return filtered, friends
+
+
 def main(args):
     base = _load_map()
     frame, draw = _new_frame(base)
@@ -183,18 +197,13 @@ def main(args):
 
                 # Filter to friends only
                 if friend_store is not None:
-                    friend_ids = friend_store.get_friend_ids()
-                    burners = {
-                        name: data
-                        for name, data in burners.items()
-                        if data.get("node_id") in friend_ids
-                    }
+                    burners, friends = _filter_friend_burners(burners, friend_store)
                     # Update last_seen for displayed friends
                     for data in burners.values():
                         friend_store.update_last_seen(data["node_id"])
                     friend_store.flush_last_seen()
                     logging.debug(
-                        "showing %d/%d friends", len(burners), len(friend_ids)
+                        "showing %d/%d friends", len(burners), len(friends)
                     )
 
                 if burners:
