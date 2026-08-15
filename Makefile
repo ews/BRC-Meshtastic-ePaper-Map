@@ -6,8 +6,12 @@ VENV := .venv
 VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
 _VENV_FLAG := $(VENV)/.created
+HISTORY_DATABASE ?=
+HISTORY_DATABASE_ARG = $(if $(strip $(HISTORY_DATABASE)),--database "$(HISTORY_DATABASE)",)
+MESH_HISTORY_OUTPUT ?= mesh-history.csv
+CONVERSATIONS_OUTPUT ?= conversations.csv
 
-.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map test-screen pytest clean help
+.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map dump-mesh-history dump-conversations test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -61,6 +65,13 @@ run: test  ## alias for test
 
 run-map: check-venv  ## display the live map on ePaper and connect to Meshtastic
 	$(VENV_PYTHON) display_map.py
+
+# ── history exports ────────────────────────────────────────────
+dump-mesh-history: check-venv  ## export all recorded positions to mesh-history.csv
+	$(VENV_PYTHON) tools/export_history.py positions $(HISTORY_DATABASE_ARG) --output "$(MESH_HISTORY_OUTPUT)"
+
+dump-conversations: check-venv  ## export all received chats to conversations.csv
+	$(VENV_PYTHON) tools/export_history.py conversations $(HISTORY_DATABASE_ARG) --output "$(CONVERSATIONS_OUTPUT)"
 
 # ── ePaper hardware test (Raspberry Pi only) ──────────────────
 test-screen: check-venv  ## clear ePaper and draw test pattern

@@ -6,6 +6,8 @@ burners.log
 mesh_history.sqlite3
 mesh_history.sqlite3-shm
 mesh_history.sqlite3-wal
+mesh-history.csv
+conversations.csv
 requirements-laptop.txt
 *.egg-info/
 dist/

@@ -267,7 +267,26 @@ friend record looks like:
 Duplicate position reports and packet IDs are ignored. Position writes are
 batched into one SQLite transaction per 60-second poll; chat is saved as it is
 received. SQLite uses WAL mode so readers can inspect history while the map is
-running. For example:
+running.
+
+Export all position history or received conversations to CSV:
+
+```bash
+make dump-mesh-history   # writes mesh-history.csv
+make dump-conversations  # writes conversations.csv
+```
+
+Choose a different output file when needed:
+
+```bash
+make dump-mesh-history MESH_HISTORY_OUTPUT=exports/playa-positions.csv
+make dump-conversations CONVERSATIONS_OUTPUT=exports/playa-chat.csv
+```
+
+The exports include CSV headers and are ordered chronologically. Existing
+output files are replaced. Both commands read `history_database` from
+`config.yaml`; use `HISTORY_DATABASE=/path/to/another.sqlite3` to export a
+different database. You can also query the live database directly:
 
 ```bash
 sqlite3 mesh_history.sqlite3 \
