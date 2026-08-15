@@ -1,292 +1,350 @@
 # BRC Meshtastic ePaper Map
 
-Real-time GPS tracking and visualization for Burning Man using Meshtastic
-mesh networks and a WaveShare ePaper display.
+Display Meshtastic friends on a calibrated Black Rock City map using a
+WaveShare 7.3-inch E6/Spectra 6 e-paper panel. The application converts GPS
+coordinates into playa addresses, assigns persistent symbols to friends,
+records position and chat history in SQLite, and provides browser tools for
+friend management and map calibration.
 
-![screenshot](media/display_map.png)
+![BRC map display](media/display_map.png)
 
----
+## Contents
 
-## Table of Contents
+- [What it does](#what-it-does)
+- [Hardware and software](#hardware-and-software)
+- [Quick start](#quick-start)
+- [Raspberry Pi installation](#raspberry-pi-installation)
+- [Running the map](#running-the-map)
+- [Display behavior](#display-behavior)
+- [Friends and emoji](#friends-and-emoji)
+- [Position and conversation history](#position-and-conversation-history)
+- [GPS, playa addresses, and projection](#gps-playa-addresses-and-projection)
+- [Map calibration](#map-calibration)
+- [Mockup and hardware tests](#mockup-and-hardware-tests)
+- [Configuration reference](#configuration-reference)
+- [Command reference](#command-reference)
+- [Architecture and files](#architecture-and-files)
+- [Web APIs](#web-apis)
+- [Maintenance and data safety](#maintenance-and-data-safety)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Map assets and GIS data](#map-assets-and-gis-data)
 
-1. [Overview](#overview)
-2. [Files & Architecture](#files--architecture)
-3. [Quick Start (laptop test)](#quick-start-laptop-test)
-4. [Configuration](#configuration)
-5. [Map Calibration](#map-calibration)
-6. [Friend Filtering System](#friend-filtering-system)
-7. [Raspberry Pi Deployment](#raspberry-pi-deployment)
-8. [Development](#development)
-9. [Data Sources](#data-sources)
+## What it does
 
----
+The main process:
 
-## Overview
+1. Loads the static BRC map and immediately displays it with an update time.
+2. Starts the friend-management server on port `8051` unless friend filtering
+   is disabled.
+3. Connects to a Meshtastic radio over serial. If the serial constructor does
+   not produce a usable node database, it tries Meshtastic TCP on `localhost`.
+4. Polls the radio's node database every `sleep_seconds`.
+5. Converts every node with GPS data to a BRC address and screen position.
+6. Saves all discovered positions to SQLite before applying display filters.
+7. Shows only friends from `friends.json`, unless `--no-friends` was supplied.
+8. Refreshes the e-paper when friends join or leave, an emoji changes, or a
+   displayed friend moves at least `min_distance_refresh_ft`.
+9. Saves received Meshtastic text packets to SQLite as they arrive.
 
-Connects to a Meshtastic LoRa radio (serial or TCP), polls for node GPS
-positions, converts them to Burning Man clock+street addresses, and renders
-them on a WaveShare 7.3" E6/Spectra 6 full-color PhotoPainter display
-(800×480).
+Key features include:
 
-### Key features
+- GPS to clock-and-street addresses such as `09:30 + B` or
+  `03:13 + Open Playa`.
+- Anchor-based GPS-to-screen calibration.
+- Matching, persistent e-paper-safe symbols in the list and on the map.
+- A searchable emoji picker and friend allowlist web UI.
+- A 15-person GPS-first open-playa mockup.
+- SQLite position and conversation history with CSV exports.
+- Serial connection retry with local TCP fallback and exponential backoff.
+- A native driver for the WaveShare 7.3-inch E6/Spectra 6 display.
 
-- **GPS → BRC address** conversion (e.g. `"07:30 + Esplanade"`)
-- **Anchor-point map projection** — calibrate once with 2+ GPS→pixel pairs
-- **Web calibration tool** (`calibrate.py`) — click to set anchor positions
-- **Friend filtering** — only show whitelisted node IDs on the display
-- **Per-burner symbols** — matching e-paper-safe emoji in the list and on the map
-- **Web management UI** (`friend_server.py`) — add/remove/edit friends
-- **Exponential backoff retry** on mesh connection drops
-- **Debug mode** with test coordinates and calibration overlays
+## Hardware and software
 
----
+### Supported display
 
-## Files & Architecture
+This project targets the WaveShare 7.3-inch E6/Spectra 6 full-color
+PhotoPainter panel:
 
-```
-BRC-Meshtastic-ePaper-Map/
-├── display_map.py        # Main loop: poll → filter → render → sleep
-├── config.yaml           # User configuration (anchors, screen size, etc.)
-├── config.py             # Loads config.yaml + builds MapProjection
-│
-├── projection.py         # GPS→pixel similarity transform (anchor-based)
-├── coordinates.py        # GPS→BRC address, GPS→pixel wrappers
-│
-├── mesh.py               # Meshtastic connection, polling, node extraction
-├── renderer.py           # PIL drawing: dots, pentagon, labels, test coords
-├── friend_store.py       # Thread-safe JSON friend database
-├── friend_server.py      # REST API + web UI for friend management (port 8051)
-├── history_store.py      # SQLite position and received-chat history
-│
-├── calibrate.py          # Web calibration tool (port 8050)
-├── Makefile              # npm-style: make install, make test, make calibrate
-├── pyproject.toml        # Package metadata, deps, tool config (package.json equivalent)
-│
-├── tests/
-│   └── test_projection.py # 9 unit tests for MapProjection
-│
-├── media/
-│   ├── Map_1bit.png      # BRC city map (1-bit, 465×371)
-│   └── Font.ttc          # Font for labels
-│
-├── requirements.txt      # Pi dependencies (tight pins)
-├── requirements-dev.txt  # Laptop dependencies (relaxed pins)
-│
-├── PLAN.md               # Improvement plan & status
-├── SPEC-FRIENDS.md        # Friend filtering spec
-└── README.md             # This file
-```
+- Physical panel buffer: `800 × 480`.
+- Application canvas: `480 × 800` portrait; the driver rotates it for the
+  physical panel.
+- Native colors used by the application: black, white, red, blue, green, and
+  yellow.
+- Driver: `waveshare_epd/epd7in3e.py`.
 
-### Data flow
+Do not use `epd7in5_V2.py` for this panel. That is a different display family
+and was the cause of the earlier `epdconfig.SPI` failure.
 
-```
-Meshtastic Radio
-    │
-    ▼
-mesh.py: connect_serial() → get_mesh_info() → add_bm_coordinates()
-    │                                              │
-    │                                    coordinates.py: gps_to_burning_man()
-    │                                    coordinates.py: gps_to_image_coordinates()
-    │                                              │
-    ▼                                              ▼
-display_map.py: filter friends by node_id (friend_store.py)
-    │
-    ▼
-renderer.py: draw_node_labels() → ePaper display
-```
+### Raspberry Pi and radio
 
-### Projection math
+- Raspberry Pi Zero 2 W, Pi 3, or Pi 4.
+- A Meshtastic device connected by USB serial, or a Meshtastic TCP service on
+  the Pi at `localhost`.
+- SPI enabled for the e-paper HAT.
 
-```python
-# projection.py — similarity transform from 2+ anchor points
-proj = MapProjection([
-    (man_lat,  man_lon,  man_px_x,  man_px_y),
-    (temple_lat, temple_lon, temple_px_x, temple_px_y),
-])
-x, y = proj.gps_to_pixel(lat, lon)
-```
+Default BCM pin assignments are:
 
-The transform automatically computes scale, rotation, and translation from
-the anchor pairs. No hardcoded bounding boxes, angles, or radii.
+| Function | BCM pin |
+| --- | ---: |
+| Reset | 17 |
+| Data/command | 25 |
+| Chip select | 8 |
+| Busy | 24 |
+| Panel power | 27 |
 
----
+The SPI device is bus `0`, chip select `0`, mode `0`, at 4 MHz.
 
-## Quick Start (laptop test)
+### Software
 
-No ePaper or Meshtastic radio needed. Works like `npm install`:
+- Python 3.10 or newer. The package metadata currently declares 3.9, but the
+  source uses modern union type syntax that requires Python 3.10+.
+- GNU Make.
+- On Raspberry Pi: system `RPi.GPIO` and `spidev` packages.
+- A desktop image viewer is needed only for `--screen` previews.
+
+## Quick start
+
+For a laptop or development machine:
 
 ```bash
+git clone <repository-url>
 cd BRC-Meshtastic-ePaper-Map
-make install   # creates .venv, installs package in editable mode
-make test      # runs display in --debug --screen mode
-make test-full-mockup  # opens 15 mock burners positioned on open playa
-make test-full-mockup-epaper  # moves them and refreshes E6 every minute
+make install
+make pytest
+make test-full-mockup
 ```
 
-The e-paper mockup keeps the same 15 burner identities and emoji while moving
-their positions around open playa every 60 seconds. Each update generates GPS
-latitude/longitude first, then runs the same GPS → BRC address and GPS → screen
-projection used for real Meshtastic nodes. Press `Ctrl+C` to stop it.
+`make install` is the only laptop installation target. It creates `.venv`,
+upgrades the packaging tools, and installs this project in editable mode with
+its test dependencies. Other Make targets never install dependencies for you.
 
-A window opens showing the BRC map with test point labels. See all targets:
+The mockup saves `/tmp/brc-full-mockup.png` and opens it with the system image
+viewer. It does not require a radio or e-paper panel.
+
+## Raspberry Pi installation
+
+On Raspberry Pi OS, first install the platform packages needed to create a
+virtual environment and access GPIO/SPI. Package names may vary on non-Debian
+distributions.
 
 ```bash
-make help
+sudo apt update
+sudo apt install -y git python3-venv python3-rpi.gpio python3-spidev
 ```
 
----
-
-## Configuration
-
-All user settings are in `config.yaml`:
-
-### Screen & display
-
-```yaml
-display:
-  width: 480
-  height: 800
-
-image_position: [6, 400]     # where Map_1bit.png is pasted on screen
-sleep_seconds: 60             # mesh poll interval
-```
-
-### Map calibration (the critical part)
-
-```yaml
-anchors:
-  - [40.783247, -119.207884, 240, 516]   # The Man: lat, lon, screen_x, screen_y
-  - [40.788099, -119.201500, 311, 444]   # The Temple
-
-feet_per_degree: 364000
-```
-
-Only 2 anchors are needed to define the projection. Use `make calibrate` to
-set pixel positions by clicking on the map.
-
-### BRC geometry (for address display only)
-
-```yaml
-brc:
-  man_lat: 40.783247
-  man_long: -119.207884
-  distance_man_esplanade: 2500
-  distance_streets: [400, 250, 250, 250, 250, 250, 450, 250, 250, 250, 150, 150]
-  brc_noon: 1.5
-```
-
-### Friend filtering
-
-```yaml
-friends_file: "friends.json"
-friend_server_port: 8051
-history_database: "mesh_history.sqlite3"
-```
-
----
-
-## Map Calibration
-
-The web calibration tool simulates the e-ink screen:
+Enable SPI:
 
 ```bash
-make calibrate
-# Open http://localhost:8050
+sudo raspi-config
+# Interface Options → SPI → Enable
 ```
 
-### Steps
-
-1. Select an anchor in the sidebar (e.g. "The Man")
-2. Click on the map image where that landmark appears
-3. Repeat for "The Temple" or another known point
-4. Check the yellow test point dots — they should land on correct map features
-5. Click **Download config.yaml** and paste the anchors into `config.yaml`
-
-The projection updates in real-time as you click. The pentagon is drawn from
-GIS trash fence vertices projected through your calibration.
-
----
-
-## Friend Filtering System
-
-### Overview
-
-By default, the ePaper shows **only whitelisted friends** (not all mesh nodes).
-An empty friends list shows nothing — explicit opt-in.
-
-### Web management UI
+Clone and install:
 
 ```bash
-# Starts automatically with display_map.py
-# Open http://<pi-ip>:8051
+git clone <repository-url>
+cd BRC-Meshtastic-ePaper-Map
+make install-pi
+make test-screen
 ```
 
-Two panels:
+`make install-pi` is the only Raspberry Pi installation target. It recreates
+the virtual environment with access to system site packages, then installs the
+project and development dependencies in editable mode.
 
-- **Left — My Friends**: List with inline name/short-name/notes editing,
-  searchable emoji picker, add form, and delete buttons
-- **Right — Mesh Nodes**: Live mesh nodes with **"+ Add"** buttons to
-  quickly whitelist a node
+If serial access is denied, add the login user to the serial-device group and
+start a new login session:
 
-### REST API
+```bash
+sudo usermod -aG dialout "$USER"
+```
 
-| Method | Path | Description |
-| -------- | ------ | ------------- |
-| `GET` | `/api/friends` | List all friends |
-| `POST` | `/api/friends` | Add a friend; an e-paper-safe emoji is assigned by default |
-| `PUT` | `/api/friends/<id>` | Edit name, short name, notes, or emoji |
-| `DELETE` | `/api/friends/<id>` | Remove a friend |
-| `GET` | `/api/nodes` | Live mesh nodes with `is_friend` flag |
+## Running the map
 
-### Storage
+Start the production e-paper process from the project root:
 
-`friends.json` is only the display allowlist and icon configuration. It is
-written when you add, edit, or remove a friend—not on every mesh poll. Each
-friend record looks like:
+```bash
+make run-map
+```
+
+Stop it with `Ctrl+C`. The application unsubscribes from Meshtastic events,
+closes the radio and SQLite database, puts the display to sleep, and releases
+GPIO/SPI resources.
+
+Direct invocation is also supported:
+
+```bash
+.venv/bin/python display_map.py [options]
+```
+
+| Option | Behavior |
+| --- | --- |
+| `-d`, `--debug` | Draw fixed calibration landmarks instead of connecting to Meshtastic. |
+| `-s`, `--screen` | Open frames with the desktop image viewer instead of initializing e-paper. |
+| `-c`, `--calibrate` | Accepted by the CLI; calibration is performed by `make calibrate`. |
+| `--no-friends` | Disable the allowlist, show all positioned nodes, and do not start the friend web server. |
+
+The initial base map is sent to the display before radio discovery. A missing
+radio therefore does not leave the panel blank while connection retries run.
+
+### Meshtastic connection behavior
+
+The application first creates a Meshtastic `SerialInterface`. If that object
+has no node database, it explicitly tries `TCPInterface("localhost")`.
+Connection and node-poll failures retry after 5, 10, 20, 40, 80, and then a
+maximum of 120 seconds. There is currently no command-line option for a remote
+TCP hostname.
+
+## Display behavior
+
+Each rendered frame contains:
+
+- A detail list at the top with symbol, Meshtastic long name, BRC address, and
+  the node position timestamp.
+- The city map and dotted trash-fence outline.
+- A colored circular symbol marker at each projected location.
+- `updated: YYYY-MM-DD HH:MM:SS` in the bottom-right corner, using the Pi's
+  local system time when the frame was composed.
+
+The list switches to a denser 10-point layout above 10 people. Marker and list
+colors rotate through the supplied E6-safe palette. The live display normally
+uses red; the full mockup uses red, blue, green, and black.
+
+E-paper is refreshed only when the displayed set changes, an assigned emoji
+changes, or someone moves at least the configured distance. SQLite history is
+independent of this decision and can accept new position reports without an
+e-paper refresh.
+
+## Friends and emoji
+
+By default the e-paper displays only node IDs listed in `friends.json`. An
+empty friend list deliberately shows no people. Position history is still
+recorded for every positioned node known to the radio.
+
+Start `make run-map`, then open:
+
+```text
+http://<raspberry-pi-ip>:8051
+```
+
+The friend manager supports:
+
+- Adding a node by ID and name.
+- Editing name, four-character short name, notes, and symbol.
+- Removing a friend.
+- Viewing mesh nodes and adding one to the allowlist.
+- Searching the symbol picker by glyph, name, or keyword.
+
+The supported glyph catalog contains 15 symbols known to exist in
+`media/Font.ttc`: stars, card suits, music/phone symbols, and chess pieces.
+When no symbol is selected, a deterministic SHA-256-based assignment is made
+from the node ID. Assignments are stable across restarts and distinct while
+unused symbols remain. Duplicate or unsupported selections are rejected.
+
+`friends.json` is only an allowlist and UI metadata store. It is written when
+a friend is added, edited, removed, or migrated—not during position polling.
+A record has this shape:
 
 ```json
 {
   "node_id": "!abcd1234",
   "name": "Alice",
-  "short_name": "AL",
+  "short_name": "Alic",
+  "notes": "Camp at 7:30 & C",
   "emoji": "♥",
-  "notes": "Camp Quark @ 7:30 & C",
   "added_at": "2026-08-20T12:00:00Z"
 }
 ```
 
-### Position and chat history
+The symbol is applied to the live node on the map. The displayed name comes
+from the Meshtastic node's `longName`; the stored name and notes are friend
+manager metadata. Legacy `last_seen` fields are removed automatically.
 
-`mesh_history.sqlite3` stores history independently of the display allowlist:
-
-- `positions` contains GPS reports from every visible mesh node, including
-  node/name, source time, latitude, longitude, altitude, and BRC address.
-- `messages` contains every received Meshtastic text packet, including sender,
-  recipient, channel, receive time, text, and MQTT status.
-
-Duplicate position reports and packet IDs are ignored. Position writes are
-batched into one SQLite transaction per 60-second poll; chat is saved as it is
-received. SQLite uses WAL mode so readers can inspect history while the map is
-running.
-
-Export all position history or received conversations to CSV:
+To temporarily show everyone without changing `friends.json`:
 
 ```bash
-make dump-mesh-history   # writes mesh-history.csv
-make dump-conversations  # writes conversations.csv
+.venv/bin/python display_map.py --no-friends
 ```
 
-Choose a different output file when needed:
+## Position and conversation history
+
+The database path defaults to `mesh_history.sqlite3`. Python's built-in
+`sqlite3` module is used; no external database service is required. The store
+uses WAL journaling and `synchronous=NORMAL`, and it is safe for the
+Meshtastic receive thread and polling loop to share.
+
+History is collected before friend filtering:
+
+- `positions` receives positioned nodes from each radio poll.
+- Duplicate positions are ignored using node ID, source timestamp, latitude,
+  and longitude.
+- All received `meshtastic.receive.text` packets are saved immediately.
+- Duplicate conversations are ignored by Meshtastic packet ID. If an ID is
+  absent, a stable hash of sender, recipient, receive time, channel, and text
+  is used.
+
+### Database schema
+
+`positions`:
+
+| Column | Meaning |
+| --- | --- |
+| `id` | SQLite row ID. |
+| `observed_at` | UTC time when this application stored the row. |
+| `source_time` | Position timestamp supplied by Meshtastic; `0` if absent. |
+| `node_id` | Meshtastic node ID. |
+| `name` | Meshtastic long name at the time of storage. |
+| `latitude`, `longitude` | GPS position. |
+| `altitude` | Reported altitude, if present. |
+| `brc_address` | Converted clock-and-street/open-playa address. |
+
+`messages`:
+
+| Column | Meaning |
+| --- | --- |
+| `id` | SQLite row ID. |
+| `received_at` | UTC time when this application stored the packet. |
+| `packet_id` | Meshtastic ID or generated fallback hash; unique. |
+| `rx_time` | Meshtastic receive timestamp, if present. |
+| `sender_id`, `sender_name` | Sender identity known at receipt time. |
+| `recipient_id` | Direct recipient or broadcast identifier. |
+| `channel` | Meshtastic channel index. |
+| `text` | Decoded UTF-8 message. |
+| `via_mqtt` | `1` when Meshtastic marked the packet as MQTT-delivered. |
+
+### CSV exports
+
+```bash
+make dump-mesh-history   # mesh-history.csv
+make dump-conversations  # conversations.csv
+```
+
+Exports include headers, are ordered chronologically, and replace an existing
+file at the same path. Override output names like this:
 
 ```bash
 make dump-mesh-history MESH_HISTORY_OUTPUT=exports/playa-positions.csv
 make dump-conversations CONVERSATIONS_OUTPUT=exports/playa-chat.csv
 ```
 
-The exports include CSV headers and are ordered chronologically. Existing
-output files are replaced. Both commands read `history_database` from
-`config.yaml`; use `HISTORY_DATABASE=/path/to/another.sqlite3` to export a
-different database. You can also query the live database directly:
+Both targets read `history_database` from `config.yaml`. To export another
+database:
+
+```bash
+make dump-mesh-history HISTORY_DATABASE=/path/to/history.sqlite3
+```
+
+You can also run the exporter directly:
+
+```bash
+.venv/bin/python tools/export_history.py positions \
+  --database mesh_history.sqlite3 --output positions.csv
+.venv/bin/python tools/export_history.py conversations \
+  --database mesh_history.sqlite3 --output conversations.csv
+```
+
+Or query SQLite directly when the `sqlite3` CLI is installed:
 
 ```bash
 sqlite3 mesh_history.sqlite3 \
@@ -295,127 +353,416 @@ sqlite3 mesh_history.sqlite3 \
   'SELECT received_at,sender_name,text FROM messages ORDER BY id DESC LIMIT 20;'
 ```
 
-### Bypass filtering
+## GPS, playa addresses, and projection
 
-```bash
-python3 display_map.py --no-friends   # shows all mesh nodes
+### GPS to BRC address
+
+Real nodes and mock burners both begin with latitude and longitude. Address
+conversion then:
+
+1. Calculates geodesic distance and bearing from the configured Man position.
+2. Checks configured points of interest by their expected radial distance;
+   matches within `poi_radius_ft` return the POI label.
+3. Rotates geographic bearing by `brc_noon` to obtain the BRC clock direction.
+4. Labels distances inside `distance_man_esplanade` as `Open Playa`.
+5. Walks the configured street-width list to select Esplanade or a lettered
+   street.
+6. Uses a raw distance such as `6840ft` after the configured street rings end.
+
+For example, `09:00 + B` means the GPS bearing converts to the 9 o'clock radial
+and the distance falls inside the configured B Street band. `03:13 + Open
+Playa` means the bearing is around 3:13 and the point is inside Esplanade.
+
+### GPS to screen pixels
+
+`MapProjection` uses two or more anchors shaped as:
+
+```text
+[latitude, longitude, screen_x, screen_y]
 ```
 
----
+The first two anchors determine translation, scale, and rotation between local
+feet and the PIL canvas. Additional anchors are reported for consistency but
+do not change the transform. The inverse transform is available for tests and
+calibration. Final drawing coordinates are rounded and clamped to the canvas.
 
-## Raspberry Pi Deployment
+The address calculation and pixel projection are separate. Street geometry
+does not determine marker placement; both results independently originate
+from the same GPS coordinate.
 
-### Hardware
+## Map calibration
 
-- Raspberry Pi (Zero 2W, 3, or 4)
-- WaveShare 7.3" E6 full-color PhotoPainter for Raspberry Pi Zero (800×480)
-- Meshtastic radio (serial or TCP)
-
-This PhotoPainter uses the `epd7in3e` driver and its board-specific BCM 27
-power pin. Older `epd7in5_V2` monochrome/tri-color drivers are incompatible.
-
-### Install
+Run:
 
 ```bash
-git clone <repo>
-cd BRC-Meshtastic-ePaper-Map
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+make calibrate
 ```
 
-### Enable SPI
+Open `http://localhost:8050`, or `http://<pi-ip>:8050` when calibrating from
+another device on the same network.
+
+1. Select a known landmark, such as The Man.
+2. Click its exact location on the simulated portrait screen.
+3. Repeat for a well-separated second point such as Temple or a G plaza.
+4. Inspect the projected test labels and trash fence.
+5. Add more verification points if useful.
+6. Click the save button. The server atomically updates the `anchors` list in
+   `config.yaml`.
+
+At least two distinct, well-separated anchors are required. Restart the map
+process after changing calibration. The calibration server binds to
+`0.0.0.0:8050` and has no authentication; use it only on a trusted network.
+
+## Mockup and hardware tests
+
+### Desktop full mockup
 
 ```bash
-sudo raspi-config
-# Interface Options → SPI → Enable
+make test-full-mockup
 ```
 
-### Run
+The mockup creates 15 stable burner identities and symbols. For every frame it
+generates random GPS locations 700–2,300 feet from The Man, projects those GPS
+points with the production transformation, converts them with the production
+BRC-address function, and keeps markers at least 24 pixels apart. The default
+output is `/tmp/brc-full-mockup.png`.
+
+Direct options:
 
 ```bash
-make run-map
+.venv/bin/python tools/full_mockup.py \
+  [--seed N] [--people 1..20] [--output FILE] [--no-show] \
+  [--epaper] [--interval SECONDS] [--frames N]
 ```
 
-The base map is displayed immediately, before Meshtastic connection retries.
-The friend management server starts automatically at port 8051.
-Access it from your phone at `http://<pi-ip>:8051`.
+`--seed` makes identities and movement reproducible. When `--interval` is
+nonzero and `--frames` is omitted, frames continue until `Ctrl+C`.
 
-### CLI flags
+### Moving e-paper mockup
 
-| Flag | Description |
-| ------ | ------------- |
-| `-d`, `--debug` | Use test coordinates instead of Meshtastic |
-| `-s`, `--screen` | Show on desktop window instead of ePaper |
-| `-c`, `--calibrate` | Print GPS→pixel conversion details |
-| `--no-friends` | Show all mesh nodes (disable friend filtering) |
+```bash
+make test-full-mockup-epaper
+```
 
----
+This refreshes the E6 panel once per minute. Burner numbers and symbols stay
+fixed while their GPS locations move around open playa. The interval is
+start-to-start, so display rendering time is subtracted from the sleep.
+
+### E-paper electrical/driver test
+
+```bash
+make test-screen
+```
+
+This Raspberry-Pi-only test initializes the E6 driver, clears the panel, draws
+a colored border and crosshair, displays the panel dimensions, then sleeps the
+panel. It is the first command to run when diagnosing wiring or SPI.
+
+### Debug overlay
+
+```bash
+make test
+```
+
+This is a visual desktop debug mode, not the unit-test suite. It draws known
+GIS landmarks, screen limits, and calibration lines without requiring a radio.
+Stop it with `Ctrl+C`.
+
+## Configuration reference
+
+Edit `config.yaml`; `config.py` is the loader and derived-value module.
+
+| Key | Default/current value | Purpose |
+| --- | --- | --- |
+| `display.width` | `480` | Portrait application canvas width. |
+| `display.height` | `800` | Portrait application canvas height. |
+| `sleep_seconds` | `60` | Node database polling interval. |
+| `map_file` | `media/Map_resized.png` | Static map image loaded into the frame. |
+| `image_position` | `[6, 400]` | Map image top-left position on the application canvas. |
+| `anchors` | Man and Temple | GPS-to-screen calibration tuples. |
+| `feet_per_degree` | `364000` | Local latitude conversion used by the projection. |
+| `brc.man_lat`, `brc.man_long` | 2026 Man GPS | Origin for address calculations. |
+| `brc.distance_man_esplanade` | `2500` ft | Radius inside which points are Open Playa. |
+| `brc.distance_streets` | 12 widths | Radial widths for Esplanade and lettered streets. |
+| `brc.street_last_letter` | `K` | Final generated street name. |
+| `brc.brc_noon` | `1.5` hours | Rotation from geographic bearing to BRC clock. |
+| `min_distance_refresh_ft` | `50` ft | Movement needed to refresh e-paper. |
+| `friends_file` | `friends.json` | Friend allowlist and emoji file. |
+| `friend_server_port` | `8051` | Friend manager HTTP port. |
+| `history_database` | `mesh_history.sqlite3` | SQLite history file. |
+| `points_of_interest` | Temple, Center Camp, The Man | Radial-distance address overrides. |
+| `poi_radius_ft` | `50` ft | Tolerance for a POI override. |
+| `distance_man_to_trashfence_ft` | `8479` ft | Physical fence radius used for derived geometry. |
+| `trash_fence_radius_px` | `332` px | Displayed dotted-fence radius. |
+
+Two optional advanced keys are accepted even though they are absent from the
+default YAML:
+
+- `svg_city_esplanade_radius_px`: override the derived Esplanade screen radius.
+- `svg_city_radius_px`: override the derived full-city screen radius.
+
+Coordinates more than one degree from The Man produce a warning. Screen
+coordinates outside the canvas are clamped to its nearest edge.
+
+## Command reference
+
+| Command | Description |
+| --- | --- |
+| `make` / `make all` | Run the unit-test suite using the existing environment. |
+| `make install` | Create/update the laptop virtual environment and install dependencies. |
+| `make install-pi` | Create/update a Pi virtual environment with system GPIO/SPI packages. |
+| `make test` | Run the non-hardware debug overlay in desktop screen mode. |
+| `make test-full-mockup` | Render and open one 15-burner desktop mockup. |
+| `make test-full-mockup-epaper` | Continuously move mock burners and refresh e-paper every minute. |
+| `make calibrate` | Start the map calibrator on port 8050. |
+| `make run` | Alias for `make test`. |
+| `make run-map` | Run the live Meshtastic map on e-paper. |
+| `make dump-mesh-history` | Export positions to `mesh-history.csv`. |
+| `make dump-conversations` | Export received text to `conversations.csv`. |
+| `make test-screen` | Run the E6 panel hardware test. |
+| `make pytest` | Run all automated tests verbosely. |
+| `make clean` | Remove `.venv`, Python caches, pytest cache, and build artifacts; history and friend data remain. |
+| `make help` | Show Make targets and their short descriptions. |
+
+Export targets also accept these Make variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MESH_HISTORY_OUTPUT` | `mesh-history.csv` | Position CSV destination. |
+| `CONVERSATIONS_OUTPUT` | `conversations.csv` | Conversation CSV destination. |
+| `HISTORY_DATABASE` | value from `config.yaml` | Optional source database override. |
+
+## Architecture and files
+
+### Runtime data flow
+
+```text
+Meshtastic serial ──fallback──> TCP localhost
+       │
+       ├── node database poll ──> GPS/BRC conversion ──> SQLite positions
+       │                                      │
+       │                                      └──> friend ID filter
+       │                                                │
+       │                                                └──> renderer ──> E6
+       │
+       └── received text event ───────────────────────────────> SQLite messages
+
+friends.json ──> display allowlist + persistent emoji
+config.yaml  ──> display, geometry, projection, ports, and file paths
+```
+
+### Repository map
+
+| Path | Responsibility |
+| --- | --- |
+| `display_map.py` | Startup, polling loop, friend filtering, history wiring, refresh decisions, CLI. |
+| `mesh.py` | Serial/TCP connection, retry logic, node extraction, GPS enrichment. |
+| `coordinates.py` | Geodesic distance, BRC address conversion, projection wrapper. |
+| `projection.py` | Forward/inverse anchor-based similarity transform. |
+| `renderer.py` | Fence, markers, symbols, detail list, debug labels, update timestamp. |
+| `burner_emojis.py` | Supported glyph catalog, validation, deterministic assignment. |
+| `friend_store.py` | Thread-safe, atomic JSON friend CRUD and migrations. |
+| `friend_server.py` | Embedded friend UI and REST API on port 8051. |
+| `history_store.py` | Thread-safe SQLite schema, position batches, text-packet storage. |
+| `calibrate.py` | Embedded calibration UI/API on port 8050. |
+| `config.yaml` | User-editable settings. |
+| `config.py` | Configuration loading and derived geometry. |
+| `tools/full_mockup.py` | GPS-first populated map preview and moving E6 demo. |
+| `tools/export_history.py` | Read-only SQLite-to-CSV exports. |
+| `tools/test_screen.py` | Raspberry Pi E6 hardware test. |
+| `tools/resize_map.py` | Aspect-preserving map resize and placement suggestion. |
+| `tools/generate_map.py` | Developer-only 2026 GIS raster generator. |
+| `waveshare_epd/epd7in3e.py` | E6 initialization, palette quantization, framebuffer packing. |
+| `waveshare_epd/epdconfig.py` | GPIO, panel power, and SPI abstraction. |
+| `tests/` | Automated coordinate, projection, display, driver, friend, history, export, mockup, and mesh tests. |
+| `pyproject.toml` | Package metadata, dependencies, pytest, and Ruff settings. |
+| `requirements.txt` | Legacy tightly pinned dependency list. |
+| `requirements-dev.txt` | Legacy relaxed non-Pi dependency list. |
+| `SPEC-FRIENDS.md` | Detailed friend-system design notes. |
+| `PLAN.md` | Historical implementation plan/status notes. |
+| `README.org` | Legacy short-form documentation; this README is authoritative. |
+
+### Generated and runtime files
+
+| File | Contents | Tracked by Git? |
+| --- | --- | --- |
+| `.venv/` | Python virtual environment. | No |
+| `debug.log` | Application INFO/error log. | No |
+| `friends.json` | Allowlist, metadata, and symbols. | Yes in its initial empty form |
+| `mesh_history.sqlite3` | Position and received-message database. | No |
+| `mesh_history.sqlite3-wal`, `-shm` | SQLite WAL runtime files. | No |
+| `mesh-history.csv` | Default position export. | No |
+| `conversations.csv` | Default conversation export. | No |
+| `/tmp/brc-full-mockup.png` | Default mockup preview. | Outside repository |
+
+## Web APIs
+
+### Friend manager (`:8051`)
+
+| Method | Path | Result |
+| --- | --- | --- |
+| `GET` | `/` | Embedded friend-management page. |
+| `GET` | `/api/friends` | All friend records. |
+| `GET` | `/api/friends/<node_id>` | One friend or `404`. |
+| `GET` | `/api/nodes` | Current mesh nodes with `is_friend`. |
+| `POST` | `/api/friends` | Add `{node_id, name, notes?, emoji?}`; returns `201`. |
+| `PUT` | `/api/friends/<node_id>` | Update `name`, `short_name`, `notes`, or `emoji`. |
+| `DELETE` | `/api/friends/<node_id>` | Remove a friend; returns `204`. |
+
+Invalid/duplicate IDs and emoji conflicts return `409`. Friend writes use a
+temporary file followed by `os.replace` so readers never see partial JSON.
+
+### Calibrator (`:8050`)
+
+| Method | Path | Result |
+| --- | --- | --- |
+| `GET` | `/` or `/index.html` | Embedded calibration page. |
+| `GET` | `/map.png` | Current configured map asset. |
+| `POST` | `/api/save-anchors` | Atomically replace matching anchor pixel positions in `config.yaml`. |
+
+Both servers bind to all interfaces and provide no TLS or authentication. Do
+not expose these ports to the public internet.
+
+## Maintenance and data safety
+
+- Use a high-endurance SD card for a field deployment and keep adequate free
+  space.
+- Position writes are deduplicated and batched once per poll; conversations
+  are typically low-volume individual writes. WAL reduces contention but does
+  not replace backups.
+- Export CSV files periodically or copy the database after stopping the map.
+- Use `Ctrl+C` or a managed service stop instead of removing power.
+- `debug.log` and SQLite history have no automatic retention or rotation.
+  Monitor disk use and archive/delete data according to your deployment policy.
+- `make clean` does not delete `friends.json`, SQLite history, or CSV exports.
+- Position and message history is sensitive. Restrict filesystem and network
+  access, and retain it only as long as your group has agreed.
+
+## Troubleshooting
+
+### `AttributeError: ... epdconfig has no attribute SPI`
+
+That error comes from the incompatible 7.5-inch V2 driver. Update the project
+and use `waveshare_epd.epd7in3e`, which uses the initialized private SPI device
+through `spi_writebyte2`. Run:
+
+```bash
+make install-pi
+make test-screen
+```
+
+### E-paper initialization fails
+
+- Confirm the panel is the 7.3-inch E6/Spectra 6 PhotoPainter.
+- Enable SPI with `raspi-config`.
+- Confirm `RPi.GPIO` and `spidev` are visible inside `.venv`.
+- Check the HAT connection and BCM pins listed above.
+- Run `make test-screen` before testing Meshtastic.
+
+### No serial Meshtastic device is detected
+
+The app tries TCP on `localhost` automatically. If neither is intended to work:
+
+- Check USB power/data cable and `ls /dev/ttyUSB* /dev/ttyACM*`.
+- Check membership in `dialout` and start a new login after adding it.
+- Ensure no other process exclusively owns the serial port.
+- If using TCP, ensure the Meshtastic TCP service is running locally.
+
+Retries are expected and continue indefinitely with exponential backoff.
+
+### The map appears but no people appear
+
+- An empty `friends.json` displays nobody by design.
+- Open `http://<pi-ip>:8051` and add node IDs, or run with `--no-friends`.
+- Confirm the nodes have latitude/longitude data and a GPS fix.
+- Inspect `debug.log` for `no position` messages.
+
+### Markers are misplaced
+
+- Confirm `map_file` and `image_position` match the asset on screen.
+- Run `make calibrate` and save two well-separated anchors.
+- Add verification anchors and inspect the test labels.
+- Restart the live process after editing `config.yaml`.
+
+### The display does not refresh every minute
+
+The radio is polled every minute by default, but e-paper refreshes only after a
+displayed-set change, emoji change, or movement of at least
+`min_distance_refresh_ft`. The bottom-right time is the last composed frame,
+not a heartbeat clock.
+
+### History export says the database is missing
+
+Run `make run-map` at least once, verify `history_database` in `config.yaml`,
+or pass the correct file with `HISTORY_DATABASE=/path/to/file.sqlite3`.
+
+### Friend manager or calibrator is unreachable
+
+- Friend management exists only when the map runs without `--no-friends`.
+- Use port `8051` for friends and `8050` for calibration.
+- Confirm the Pi and browser are on the same network and local firewall rules
+  allow the port.
 
 ## Development
 
-### Makefile reference
+Run the automated suite:
 
 ```bash
-make install       # create venv + pip install -e .[dev]  (like npm install)
-make install-pi    # same but with RPi.GPIO + spidev for Raspberry Pi
-make test          # run display in --debug --screen mode
-make calibrate     # launch calibration tool → http://localhost:8050
-make pytest        # run unit tests
-make clean         # remove venv, caches, build artifacts
-make help          # show all targets
+make pytest
+# equivalent concise invocation
+.venv/bin/python -m pytest -q
 ```
 
-### Project packaging
+The current suite contains 38 tests covering:
 
-`pyproject.toml` is the Python equivalent of `package.json`. It defines:
+- BRC address behavior and open-playa classification.
+- Projection identity, scaling, rotation, round trips, anchors, and errors.
+- Refresh decisions, frame dimensions, symbols, timestamps, and startup order.
+- E6 palette packing, portrait rotation, validation, and SPI transfer.
+- Friend CRUD, emoji persistence/conflicts, migration, and UI picker structure.
+- SQLite position/chat storage and deduplication.
+- CSV exports.
+- Serial selection and TCP fallback.
+- GPS-first mock population, movement, timing, and e-paper lifecycle.
 
-- Project name, version, description
-- Dependencies with relaxed version pins
-- `[dev]` extras: pytest
-- `[pi]` extras: RPi.GPIO, spidev
-- Ruff formatter and pytest config
+Formatting configuration lives in `pyproject.toml` (`ruff`, 88-character line
+length). The WaveShare vendor-derived directory is excluded from Ruff.
 
-The `-e` flag in `pip install -e .` installs in **editable mode** — changes
-to `.py` files take effect immediately, no reinstall needed.
+`make install` and `make install-pi` use editable installation, so Python
+source changes take effect without reinstalling. Re-run installation only when
+dependencies or environment setup changes.
 
-### Running tests
+## Map assets and GIS data
+
+The active asset is configured by `map_file`; the repository includes source,
+one-bit, resized, and screenshot assets under `media/`.
+
+Resize an existing map while preserving aspect ratio:
 
 ```bash
-make pytest       # or: .venv/bin/pytest tests/ -v
+.venv/bin/python tools/resize_map.py input.png \
+  --output media/Map_resized.png --width 480 --height 800
 ```
 
-9 tests covering MapProjection: identity, scale, rotation (north-up,
-east-right), round-trip accuracy, anchor reproduction, input validation,
-and diagnostic output.
+The tool converts the output to one bit and prints a suggested centered,
+bottom-aligned `image_position`.
 
-### Code style
+`tools/generate_map.py` is a developer-only generator for the 2026 GIS layers.
+It has a hard-coded `GIS_DIR` pointing to a local checkout and no CLI options;
+edit that constant before using it. Running the script overwrites
+`media/Map_1bit.png`.
 
-Auto-formatted with ruff. Pre-existing warnings about geopy imports
-(not installed in dev env) and ast-grep "unchecked-throwing-call" rules
-are expected in this environment.
+The generator expects these 2026 GeoJSON layers:
 
-### Key design decisions
+- `trash_fence.geojson`
+- `street_lines.geojson`
+- `street_outlines.geojson`
+- `city_blocks.geojson`
+- `plazas.geojson`
+- `gate_road.geojson`
+- `dmz.geojson`
+- `toilets.geojson`
+- `cpns.geojson`
 
-- **JSON over SQLite for friends** — simpler, human-readable, zero-dependency.
-  Migration to SQLite is straightforward if needed (sqlite3 is in stdlib).
-- **Background thread for web server** — avoids separate deployment. Uses
-  `http.server` from stdlib (no Flask dependency).
-- **Anchor-point projection** — replaced bounding-box math after discovering
-  the map image is geographic north-up, not BRC-grid-up.
-- **Similarity transform** — scale, rotation, and translation from 2+ anchors.
-  Works for any screen size.
-
----
-
-## Data Sources
-
-All GPS coordinates sourced from the official 2026 Burning Man GIS data:
-
-- `innovate-GIS-data/2026/GeoJSON/cpns.geojson` — The Man, Temple, Center Camp,
-  and 40+ named points
-- `innovate-GIS-data/2026/GeoJSON/plazas.geojson` — G and B street plaza
-  centroids
-- `innovate-GIS-data/2026/GeoJSON/trash_fence.geojson` — pentagon vertices
-- `innovate-GIS-data/2026/GeoJSON/street_lines.geojson` — street centerlines
-
-19 landmarks are embedded in `calibrate.py` and `renderer.py` as test points.
+Known 2026 landmarks and fence coordinates used by calibration/debug tooling
+are embedded in `calibrate.py` and `renderer.py`.
