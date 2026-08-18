@@ -662,6 +662,11 @@ monochrome [Noto Emoji](https://github.com/googlefonts/noto-emoji), licensed
 under the SIL Open Font License 1.1. License texts are included beside the
 vendored assets.
 
+Static picker assets provide stable `ETag` headers and support `HEAD` requests.
+This lets the picker cache its Unicode database when the page is opened over
+plain HTTP on a Raspberry Pi LAN address, without requiring browser Web Crypto
+or an internet connection.
+
 ### Calibrator (`:8050`)
 
 | Method | Path | Result |
@@ -770,7 +775,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 51 tests covering:
+The current suite contains 52 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.

@@ -7,6 +7,7 @@ Access at http://<host>:8051 when running.
 
 import json
 import threading
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -275,6 +276,13 @@ def _make_handler(store, node_source):
             else:
                 self._error(404, "not found")
 
+        def do_HEAD(self):
+            path = urlparse(self.path).path
+            if path in WEB_ASSETS:
+                self._serve_asset(*WEB_ASSETS[path], head_only=True)
+            else:
+                self._error(404, "not found", head_only=True)
+
         def do_POST(self):
             path = urlparse(self.path).path
             body = self._read_body()
@@ -353,26 +361,32 @@ def _make_handler(store, node_source):
             self.end_headers()
             self.wfile.write(body)
 
-        def _serve_asset(self, asset_path, content_type):
+        def _serve_asset(self, asset_path, content_type, head_only=False):
             try:
                 body = asset_path.read_bytes()
             except OSError:
-                self._error(404, "asset not found")
+                self._error(404, "asset not found", head_only=head_only)
                 return
+            # Supplying an ETag prevents emoji-picker-element from falling back
+            # to crypto.subtle, which is unavailable over plain HTTP on a LAN IP.
+            etag = f'"{sha256(body).hexdigest()}"'
             self.send_response(200)
             self.send_header("Content-Type", f"{content_type}; charset=utf-8")
             self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("ETag", etag)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            if not head_only:
+                self.wfile.write(body)
 
-        def _error(self, code, msg):
+        def _error(self, code, msg, head_only=False):
             body = json.dumps({"error": msg}).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            if not head_only:
+                self.wfile.write(body)
 
         def _respond(self, code):
             self.send_response(code)

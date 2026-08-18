@@ -1,6 +1,7 @@
 """Tests for persistent friend emoji assignment."""
 
 import json
+from io import BytesIO
 
 import pytest
 
@@ -71,6 +72,33 @@ def test_friend_manager_contains_self_hosted_unicode_emoji_picker():
     assert "renderEmojiPicker" not in UI_HTML
     assert "last_seen" not in UI_HTML
     assert all(path.is_file() for path, _ in WEB_ASSETS.values())
+
+
+def test_emoji_data_asset_supports_etag_get_and_head(tmp_path):
+    from friend_server import _make_handler
+
+    handler_type = _make_handler(FriendStore(tmp_path / "friends.json"), list)
+
+    def request(method):
+        handler = object.__new__(handler_type)
+        handler.path = "/assets/emoji-picker-element/emoji-data.json"
+        handler.wfile = BytesIO()
+        handler.send_response = lambda status: setattr(handler, "status", status)
+        handler.end_headers = lambda: None
+        headers = {}
+        handler.send_header = lambda name, value: headers.__setitem__(name, value)
+        getattr(handler, f"do_{method}")()
+        return handler.status, headers, handler.wfile.getvalue()
+
+    get_status, get_headers, get_body = request("GET")
+    head_status, head_headers, head_body = request("HEAD")
+
+    assert get_status == head_status == 200
+    assert get_headers["ETag"] == head_headers["ETag"]
+    assert get_headers["ETag"].startswith('"')
+    assert get_headers["Content-Type"] == "application/json; charset=utf-8"
+    assert len(get_body) == int(get_headers["Content-Length"])
+    assert head_body == b""
 
 
 def test_skin_tone_unicode_emoji_is_supported(tmp_path):
