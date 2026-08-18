@@ -158,6 +158,8 @@ def _apply_friend_emojis(burners, friend_store):
 def main(args):
     base = _load_map()
     frame, draw = _new_frame(base)
+    channel_positions = ChannelPositionCache(c.location_channel_index)
+    interface = None
 
     # Friend metadata is optional and affects emojis only, never visibility.
     friend_store = None
@@ -172,19 +174,24 @@ def main(args):
             friend_store.count(),
             c.friends_file,
         )
-        friend_srv = FriendServer(friend_store, port=c.friend_server_port)
+        friend_srv = FriendServer(
+            friend_store,
+            node_source=lambda: channel_positions.web_nodes(interface),
+            port=c.friend_server_port,
+        )
         friend_srv.start()
-        logging.info("friend server at http://0.0.0.0:%d", c.friend_server_port)
+        logging.info(
+            "Channel 1 location web app at http://0.0.0.0:%d",
+            c.friend_server_port,
+        )
 
     epd = None
     if not args.screen:
         epd = _init_epd()
 
-    interface = None
     history = HistoryStore(c.history_database)
     chat_callback = None
     position_callback = None
-    channel_positions = ChannelPositionCache(c.location_channel_index)
     old_coords = {}
     needs_refresh = False
 
@@ -211,9 +218,6 @@ def main(args):
                 "showing positions received on Meshtastic channel %d",
                 c.location_channel_index,
             )
-            if friend_srv is not None:
-                friend_srv.set_mesh(interface)
-
         while True:
             if not args.debug:
                 burners = add_bm_coordinates(channel_positions.snapshot(interface))

@@ -48,6 +48,21 @@ def test_burners_get_stable_distinct_emojis():
     assert {name: data["emoji"] for name, data in burners.items()} == first
 
 
+def test_custom_emoji_is_reserved_before_automatic_assignment():
+    from burner_emojis import default_emoji
+
+    reserved = default_emoji("!1111")
+    burners = {
+        "Automatic": {**_node(), "node_id": "!1111"},
+        "Custom": {**_node(), "node_id": "!9999", "emoji": reserved},
+    }
+
+    assign_burner_emojis(burners)
+
+    assert burners["Custom"]["emoji"] == reserved
+    assert burners["Automatic"]["emoji"] != reserved
+
+
 def test_emoji_labels_render_on_list_and_map():
     burners = {"Alice": _node()}
     frame = Image.new("RGB", (480, 800), "white")

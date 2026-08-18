@@ -75,13 +75,16 @@ def draw_upward_pentagon(draw, center, radius, outline_color=RED, fill_color=Non
 
 def assign_burner_emojis(burners):
     """Assign stable, distinct symbols to the visible burners when possible."""
-    used = set()
+    used = {
+        burner["emoji"]
+        for burner in burners.values()
+        if burner.get("emoji")
+    }
     ordered = sorted(
         burners.items(), key=lambda item: item[1].get("node_id", item[0])
     )
     for name, burner in ordered:
         if burner.get("emoji"):
-            used.add(burner["emoji"])
             continue
         identity = burner.get("node_id", name)
         emoji = default_emoji(identity, used)

@@ -306,3 +306,7 @@ Updated `main()` in `display_map.py`:
 - [ ] Web UI works on a phone browser (responsive, touch-friendly)
 - [ ] Friend server starts/stops cleanly with the main process
 - [ ] If `friends.json` is empty, ePaper shows "No friends configured" message
+> **Historical design note:** The live map no longer uses `friends.json` as an
+> allowlist. Port 8051 now lists every node that has shared a live position on
+> Channel 1 and uses this file only for optional emoji overrides. See
+> `README.md` for the current behavior and API.

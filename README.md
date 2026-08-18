@@ -244,13 +244,14 @@ Start `make run-map`, then open:
 http://<raspberry-pi-ip>:8051
 ```
 
-The preference manager supports:
+The responsive preference manager shows only nodes that have supplied a live
+Channel 1 location since `make run-map` started. Each phone-friendly card shows
+the node name, ID, current BRC address, shared time, and effective symbol. Tap
+the large symbol button to open a searchable picker and save an override.
 
-- Adding a node by ID and name.
-- Editing name, four-character short name, notes, and symbol.
-- Removing stored metadata without hiding the live node.
-- Viewing mesh nodes and adding an emoji override.
-- Searching the symbol picker by glyph, name, or keyword.
+The picker supports searching by glyph, name, or keyword, highlights the
+current selection, uses large touch targets, and becomes a bottom sheet on
+small phone screens. The node list refreshes automatically every 15 seconds.
 
 The supported glyph catalog contains 15 symbols known to exist in
 `media/Font.ttc`: stars, card suits, music/phone symbols, and chess pieces.
@@ -274,9 +275,9 @@ A record has this shape:
 }
 ```
 
-The symbol is applied to the live node on the map. The displayed name comes
-from the Meshtastic node's `longName`; the stored name and notes are friend
-manager metadata. Legacy `last_seen` fields are removed automatically.
+The symbol is applied to the live node on the next display-loop refresh. The
+displayed name comes from the Meshtastic node's `longName`; the stored name is
+metadata for the override. Legacy `last_seen` fields are removed automatically.
 
 To disable the preference server and ignore all stored emoji overrides:
 
@@ -612,7 +613,7 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 | `pyproject.toml` | Package metadata, dependencies, pytest, and Ruff settings. |
 | `requirements.txt` | Legacy tightly pinned dependency list. |
 | `requirements-dev.txt` | Legacy relaxed non-Pi dependency list. |
-| `SPEC-FRIENDS.md` | Detailed friend-system design notes. |
+| `SPEC-FRIENDS.md` | Historical notes for the original friend-allowlist design. |
 | `PLAN.md` | Historical implementation plan/status notes. |
 | `README.org` | Legacy short-form documentation; this README is authoritative. |
 
@@ -635,10 +636,11 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 
 | Method | Path | Result |
 | --- | --- | --- |
-| `GET` | `/` | Embedded metadata and emoji-preference page. |
+| `GET` | `/` | Responsive Channel 1 location and emoji page. |
+| `GET` | `/api/nodes` | Channel 1 nodes with location details and effective emoji. |
+| `PUT` | `/api/nodes/<node_id>/emoji` | Create or update a found node's `{emoji}` override. |
 | `GET` | `/api/friends` | All friend records. |
 | `GET` | `/api/friends/<node_id>` | One friend or `404`. |
-| `GET` | `/api/nodes` | Current mesh nodes with `is_friend`. |
 | `POST` | `/api/friends` | Add `{node_id, name, notes?, emoji?}`; returns `201`. |
 | `PUT` | `/api/friends/<node_id>` | Update `name`, `short_name`, `notes`, or `emoji`. |
 | `DELETE` | `/api/friends/<node_id>` | Remove a friend; returns `204`. |
@@ -755,13 +757,13 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 46 tests covering:
+The current suite contains 49 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
 - Refresh decisions, frame dimensions, symbols, timestamps, and startup order.
 - E6 palette packing, portrait rotation, validation, and SPI transfer.
-- Friend CRUD, emoji persistence/conflicts, migration, and UI picker structure.
+- Emoji persistence/conflicts, Channel 1 node listing, responsive UI, and picker structure.
 - SQLite position/chat storage and deduplication.
 - CSV exports.
 - Serial selection, TCP fallback, Meshtastic position parsing, and Channel 1 filtering.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Friend management web server — runs in a background thread.
+"""Channel 1 node and emoji management web server.
 
-Provides a REST API and single-page web UI for managing the friend list.
+Provides a REST API and responsive UI for assigning symbols to found nodes.
 Access at http://<host>:8051 when running.
 """
 
@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from burner_emojis import emoji_catalog
+from burner_emojis import default_emoji, emoji_catalog
 from friend_store import FriendStore
 
 ROOT = Path(__file__).resolve().parent
@@ -21,182 +21,156 @@ UI_HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>BRC Friend Manager</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Channel 1 Locations</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:monospace;background:#1a1a2e;color:#eee;display:flex;flex-direction:column;min-height:100vh}
-header{background:#16213e;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #0f3460}
-header h1{color:#e94560;font-size:16px}
-#status{font-size:11px;color:#4ecca3}
-main{display:flex;flex:1;overflow:hidden}
-.panel{flex:1;padding:16px;overflow-y:auto}
-.panel h2{color:#f5c518;font-size:13px;margin-bottom:10px}
-#left{border-right:2px solid #0f3460}
-table{width:100%;border-collapse:collapse;font-size:11px}
-th{text-align:left;color:#888;padding:6px 4px;border-bottom:1px solid #333;font-size:10px;position:sticky;top:0;background:#1a1a2e}
-td{padding:5px 4px;border-bottom:1px solid #222;vertical-align:top}
-td input{background:#0f3460;border:1px solid #444;color:#eee;padding:3px 5px;font-family:monospace;font-size:11px;width:100%;border-radius:3px}
-td input:focus{border-color:#e94560;outline:none}
-.node-id{color:#888;font-size:10px}
-button{background:#e94560;color:#fff;border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-family:monospace;font-size:10px}
-button:hover{background:#ff6b81}
-button.dim{background:#0f3460}
-button.dim:hover{background:#1a5276}
-button.green{background:#4ecca3;color:#000}
-button.green:hover{background:#6eecc3}
-.add-form{margin-bottom:16px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
-.add-form input{background:#0f3460;border:1px solid #444;color:#eee;padding:5px 8px;font-family:monospace;font-size:11px;border-radius:3px}
-.add-form input:focus{border-color:#e94560;outline:none}
-.add-form label{font-size:10px;color:#aaa}
-.empty{color:#666;font-size:12px;padding:20px;text-align:center}
-.emoji-button{font-size:20px;line-height:24px;min-width:38px;background:#0f3460;padding:2px 8px}
-.emoji-button.auto{font-size:10px;color:#aaa}
-.modal{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;z-index:10}
+:root{color-scheme:dark;--bg:#0b1020;--card:#151d31;--card2:#1b2740;--line:#2b3a58;--text:#f4f7fb;--muted:#94a3b8;--accent:#f43f5e;--green:#34d399;--blue:#60a5fa}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#17233d 0,var(--bg) 46%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input{font:inherit}
+button{touch-action:manipulation}
+header{position:sticky;top:0;z-index:3;padding:max(18px,env(safe-area-inset-top)) 18px 14px;background:#0b1020e8;border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}
+.header-row{max-width:820px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:14px}
+.title-wrap{display:flex;align-items:center;gap:12px;min-width:0}
+.logo{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:linear-gradient(145deg,#fb7185,#be123c);font-size:23px;box-shadow:0 8px 28px #be123c44}
+h1{margin:0;font-size:20px;line-height:1.15;letter-spacing:-.02em}
+.subtitle{margin-top:3px;color:var(--muted);font-size:12px}
+.channel-badge{flex:none;padding:7px 10px;border:1px solid #34d39955;border-radius:999px;background:#064e3b55;color:#86efac;font-size:12px;font-weight:700}
+main{width:min(820px,100%);margin:auto;padding:18px 18px calc(30px + env(safe-area-inset-bottom))}
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px}
+#status{color:var(--muted);font-size:13px}
+.refresh{min-height:42px;padding:0 15px;border:1px solid var(--line);border-radius:12px;background:var(--card2);color:var(--text);font-weight:700;cursor:pointer}
+.refresh:hover,.refresh:focus-visible{border-color:var(--blue);outline:none}
+.nodes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.node-card{display:grid;grid-template-columns:64px minmax(0,1fr);gap:13px;align-items:center;padding:15px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(145deg,var(--card2),var(--card));box-shadow:0 10px 30px #0003}
+.emoji-button{width:64px;height:64px;border:1px solid #475569;border-radius:18px;background:#0f172a;color:var(--text);font-size:31px;cursor:pointer;box-shadow:inset 0 0 0 1px #ffffff08}
+.emoji-button:hover,.emoji-button:focus-visible{border-color:var(--green);outline:3px solid #34d39922;transform:translateY(-1px)}
+.node-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800;font-size:16px}
+.node-id{margin-top:3px;color:var(--muted);font:12px ui-monospace,SFMono-Regular,Menlo,monospace}
+.location{margin-top:8px;color:#bfdbfe;font-size:13px;line-height:1.35}
+.seen{margin-top:3px;color:var(--muted);font-size:11px}
+.custom{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;background:#064e3b;color:#a7f3d0;font-size:9px;vertical-align:2px}
+.empty{grid-column:1/-1;padding:48px 24px;border:1px dashed #334155;border-radius:18px;text-align:center;color:var(--muted);line-height:1.55}
+.empty strong{display:block;margin-bottom:6px;color:var(--text);font-size:17px}
+.modal{position:fixed;inset:0;z-index:10;display:grid;place-items:center;padding:18px;background:#020617c7;backdrop-filter:blur(5px)}
 .modal.hidden{display:none}
-.picker{width:min(390px,92vw);background:#16213e;border:1px solid #4ecca3;border-radius:8px;padding:14px;box-shadow:0 8px 30px #000}
-.picker-head{display:flex;gap:8px;margin-bottom:10px}
-.picker-head input{flex:1;background:#0f3460;border:1px solid #444;color:#eee;padding:8px;font-family:monospace;border-radius:3px}
-.emoji-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:7px;max-height:260px;overflow-y:auto}
-.emoji-option{background:#0f3460;font-size:22px;padding:8px 2px}
-.emoji-option:hover{background:#1a5276}
-.picker-empty{grid-column:1/-1;color:#888;text-align:center;padding:16px;font-size:11px}
+.picker{width:min(520px,100%);max-height:min(650px,90vh);overflow:hidden;border:1px solid #475569;border-radius:22px;background:#111827;box-shadow:0 28px 80px #000a}
+.picker-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 18px 10px}
+.picker-title{min-width:0}
+.picker-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px}
+.picker-title span{color:var(--muted);font-size:12px}
+.close{width:44px;height:44px;flex:none;border:1px solid var(--line);border-radius:50%;background:var(--card2);color:var(--text);font-size:20px;cursor:pointer}
+.search-wrap{padding:8px 18px 14px}
+#emoji-search{width:100%;height:48px;padding:0 15px;border:1px solid var(--line);border-radius:14px;background:#0b1222;color:var(--text);font-size:16px}
+#emoji-search:focus{border-color:var(--blue);outline:3px solid #60a5fa22}
+.emoji-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;max-height:390px;overflow-y:auto;padding:0 18px 20px}
+.emoji-option{min-height:76px;padding:8px 4px;border:1px solid var(--line);border-radius:15px;background:var(--card2);color:var(--text);cursor:pointer}
+.emoji-option:hover,.emoji-option:focus-visible{border-color:var(--green);outline:none;background:#20304d}
+.emoji-option.selected{border-color:var(--green);box-shadow:0 0 0 3px #34d39922}
+.emoji-symbol{display:block;font-size:29px;line-height:35px}
+.emoji-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px}
+.picker-empty{grid-column:1/-1;padding:30px;text-align:center;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));z-index:20;transform:translateX(-50%);max-width:calc(100% - 36px);padding:11px 15px;border-radius:12px;background:#ecfdf5;color:#064e3b;font-weight:700;font-size:13px;box-shadow:0 12px 40px #0007}
+.toast.error{background:#fff1f2;color:#9f1239}
+.toast.hidden{display:none}
+@media(max-width:680px){
+  header{padding-left:14px;padding-right:14px}.logo{width:40px;height:40px;border-radius:12px}h1{font-size:18px}.channel-badge{padding:6px 8px}
+  main{padding-left:12px;padding-right:12px}.nodes{grid-template-columns:1fr}.node-card{padding:13px}.emoji-button{width:58px;height:58px;border-radius:16px}
+  .modal{align-items:end;padding:0}.picker{width:100%;max-height:88vh;border-radius:24px 24px 0 0;padding-bottom:env(safe-area-inset-bottom)}.emoji-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:370px){.subtitle{display:none}.channel-badge{font-size:10px}.emoji-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style>
 </head>
 <body>
 <header>
-  <h1>👥 BRC Friend Manager</h1>
-  <div id="status">● Loading...</div>
+  <div class="header-row">
+    <div class="title-wrap">
+      <div class="logo">⌖</div>
+      <div><h1>Camp Locations</h1><div class="subtitle">Tap an icon to personalize it</div></div>
+    </div>
+    <div class="channel-badge">● Channel 1</div>
+  </div>
 </header>
 <main>
-  <div class="panel" id="left">
-    <h2>My Friends</h2>
-
-    <div class="add-form">
-      <div>
-        <label>Node ID</label>
-        <input id="add-id" placeholder="!abcd1234" style="width:130px">
-      </div>
-      <div>
-        <label>Name</label>
-        <input id="add-name" placeholder="Alice" style="width:110px">
-      </div>
-      <div>
-        <label>Notes</label>
-        <input id="add-notes" placeholder="Camp @ 7:30 & C" style="width:160px">
-      </div>
-      <div>
-        <label>Emoji</label>
-        <button id="add-emoji" class="emoji-button auto" onclick="openEmojiPicker(null)">Auto</button>
-      </div>
-      <button onclick="addFriend()">Add</button>
-    </div>
-
-    <div id="friends-list"></div>
-  </div>
-
-  <div class="panel" id="right">
-    <h2>Mesh Nodes (live)</h2>
-    <button onclick="refreshNodes()" class="dim" style="margin-bottom:8px">↻ Refresh</button>
-    <div id="nodes-list"></div>
-  </div>
+  <div class="toolbar"><div id="status" aria-live="polite">Listening for locations…</div><button class="refresh" onclick="refreshNodes()">↻ Refresh</button></div>
+  <div id="nodes-list" class="nodes"><div class="empty"><strong>Waiting for Channel 1</strong>Nodes appear after their next shared location arrives.</div></div>
 </main>
-
-<div id="emoji-modal" class="modal hidden" onclick="modalBackground(event)">
+<div id="emoji-modal" class="modal hidden" onclick="modalBackground(event)" role="dialog" aria-modal="true" aria-labelledby="picker-name">
   <div class="picker">
     <div class="picker-head">
-      <input id="emoji-search" placeholder="Search emoji…" oninput="renderEmojiPicker()">
-      <button class="dim" onclick="closeEmojiPicker()">✕</button>
+      <div class="picker-title"><strong id="picker-name">Choose an icon</strong><span id="picker-id"></span></div>
+      <button class="close" onclick="closeEmojiPicker()" aria-label="Close">×</button>
     </div>
+    <div class="search-wrap"><input id="emoji-search" type="search" placeholder="Search icons…" autocomplete="off" oninput="renderEmojiPicker()"></div>
     <div id="emoji-grid" class="emoji-grid"></div>
   </div>
 </div>
-
+<div id="toast" class="toast hidden" role="status"></div>
 <script>
-const BASE = '';
 const EMOJIS = __EMOJI_CATALOG__;
-let addEmoji = '';
-let pickerNodeId = null;
-
-function status(msg) { document.getElementById('status').textContent = msg; }
+let nodes = [];
+let pickerNode = null;
+let toastTimer = null;
 
 async function api(method, path, body) {
-  const opts = {method, headers:{'Content-Type':'application/json'}};
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(BASE + path, opts);
-  if (!r.ok) {
-    const err = await r.text();
-    throw new Error(`${r.status} ${err}`);
+  const options = {method, headers:{'Content-Type':'application/json'}};
+  if (body) options.body = JSON.stringify(body);
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    let message = await response.text();
+    try { message = JSON.parse(message).error || message; } catch (_) {}
+    throw new Error(message);
   }
-  if (r.status === 204) return null;
-  return r.json();
+  return response.status === 204 ? null : response.json();
 }
 
-// ── Friends list ──────────────────────────────────────────────
-async function loadFriends() {
+async function refreshNodes() {
+  const status = document.getElementById('status');
+  status.textContent = 'Refreshing…';
   try {
-    const friends = await api('GET', '/api/friends');
-    renderFriends(friends);
-    status(`● ${friends.length} friends loaded`);
-  } catch(e) {
-    status('⚠ ' + e.message);
+    nodes = await api('GET', '/api/nodes');
+    renderNodes();
+    status.textContent = nodes.length === 1 ? '1 location found' : `${nodes.length} locations found`;
+  } catch (error) {
+    status.textContent = 'Unable to load locations';
+    showToast(error.message, true);
   }
 }
 
-function renderFriends(friends) {
-  const el = document.getElementById('friends-list');
-  if (!friends.length) {
-    el.innerHTML = '<div class="empty">No friends yet. Add one above or pick from Mesh Nodes →</div>';
+function renderNodes() {
+  const list = document.getElementById('nodes-list');
+  if (!nodes.length) {
+    list.innerHTML = '<div class="empty"><strong>Waiting for Channel 1</strong>Nodes appear after their next shared location arrives.</div>';
     return;
   }
-  let html = '<table><tr><th>Emoji</th><th>Name</th><th>Short</th><th>Node ID</th><th>Notes</th><th></th></tr>';
-  friends.forEach(f => {
-    html += `<tr>
-      <td><button class="emoji-button" title="Change emoji" onclick="openEmojiPicker('${f.node_id}')">${esc(f.emoji)}</button></td>
-      <td><input value="${esc(f.name)}" onchange="updateFriend('${f.node_id}','name',this.value)"></td>
-      <td><input value="${esc(f.short_name||'')}" onchange="updateFriend('${f.node_id}','short_name',this.value)" style="width:50px" maxlength="4"></td>
-      <td><span class="node-id">${esc(f.node_id)}</span></td>
-      <td><input value="${esc(f.notes||'')}" onchange="updateFriend('${f.node_id}','notes',this.value)"></td>
-      <td><button onclick="removeFriend('${f.node_id}')" class="dim">✕</button></td>
-    </tr>`;
-  });
-  html += '</table>';
-  el.innerHTML = html;
+  list.innerHTML = nodes.map((node, index) => `
+    <article class="node-card">
+      <button class="emoji-button" onclick="openEmojiPicker(${index})" aria-label="Choose icon for ${esc(node.name)}">${esc(node.emoji)}</button>
+      <div class="node-info">
+        <div class="node-name">${esc(node.name)}${node.custom_emoji?'<span class="custom">CUSTOM</span>':''}</div>
+        <div class="node-id">${esc(node.node_id)}</div>
+        <div class="location">${esc(node.brc_address||'Location received')}</div>
+        <div class="seen">${formatTime(node.position_time)}</div>
+      </div>
+    </article>`).join('');
 }
 
-async function addFriend() {
-  const nid = document.getElementById('add-id').value.trim();
-  const name = document.getElementById('add-name').value.trim();
-  const notes = document.getElementById('add-notes').value.trim();
-  if (!nid || !name) { status('⚠ Need Node ID and Name'); return; }
-  try {
-    const body = {node_id:nid, name, notes};
-    if (addEmoji) body.emoji = addEmoji;
-    await api('POST', '/api/friends', body);
-    document.getElementById('add-id').value = '';
-    document.getElementById('add-name').value = '';
-    document.getElementById('add-notes').value = '';
-    addEmoji = '';
-    const emojiButton = document.getElementById('add-emoji');
-    emojiButton.textContent = 'Auto';
-    emojiButton.classList.add('auto');
-    loadFriends();
-    refreshNodes();
-  } catch(e) { status('⚠ ' + e.message); }
-}
-
-// ── Searchable emoji picker ───────────────────────────────────
-function openEmojiPicker(nodeId) {
-  pickerNodeId = nodeId;
+function openEmojiPicker(index) {
+  pickerNode = nodes[index];
+  document.getElementById('picker-name').textContent = pickerNode.name;
+  document.getElementById('picker-id').textContent = pickerNode.node_id;
   document.getElementById('emoji-search').value = '';
   document.getElementById('emoji-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
   renderEmojiPicker();
-  setTimeout(() => document.getElementById('emoji-search').focus(), 0);
+  setTimeout(() => document.getElementById('emoji-search').focus(), 60);
 }
 
 function closeEmojiPicker() {
   document.getElementById('emoji-modal').classList.add('hidden');
-  pickerNodeId = null;
+  document.body.style.overflow = '';
+  pickerNode = null;
 }
 
 function modalBackground(event) {
@@ -205,128 +179,80 @@ function modalBackground(event) {
 
 function renderEmojiPicker() {
   const query = document.getElementById('emoji-search').value.trim().toLowerCase();
-  const matches = EMOJIS.filter(e =>
-    !query || `${e.symbol} ${e.name} ${e.keywords}`.toLowerCase().includes(query)
-  );
+  const matches = EMOJIS.filter(item => !query || `${item.symbol} ${item.name} ${item.keywords}`.toLowerCase().includes(query));
   const grid = document.getElementById('emoji-grid');
   if (!matches.length) {
-    grid.innerHTML = '<div class="picker-empty">No matching emoji</div>';
+    grid.innerHTML = '<div class="picker-empty">No matching icons</div>';
     return;
   }
-  grid.innerHTML = matches.map(e =>
-    `<button class="emoji-option" title="${esc(e.name)}" onclick="chooseEmoji('${e.symbol}')">${e.symbol}</button>`
-  ).join('');
+  grid.innerHTML = matches.map(item => `
+    <button class="emoji-option ${pickerNode&&pickerNode.emoji===item.symbol?'selected':''}" onclick="chooseEmoji('${item.symbol}')" aria-label="${esc(item.name)}">
+      <span class="emoji-symbol">${item.symbol}</span><span class="emoji-name">${esc(item.name)}</span>
+    </button>`).join('');
 }
 
 async function chooseEmoji(symbol) {
+  if (!pickerNode) return;
+  const nodeId = pickerNode.node_id;
   try {
-    if (pickerNodeId === null) {
-      addEmoji = symbol;
-      const button = document.getElementById('add-emoji');
-      button.textContent = symbol;
-      button.classList.remove('auto');
-    } else {
-      await api('PUT', '/api/friends/' + encodeURIComponent(pickerNodeId), {emoji:symbol});
-      await loadFriends();
-      status('✓ Emoji updated');
-    }
+    await api('PUT', `/api/nodes/${encodeURIComponent(nodeId)}/emoji`, {emoji:symbol});
     closeEmojiPicker();
-  } catch(e) { status('⚠ ' + e.message); }
-}
-
-async function updateFriend(nid, field, value) {
-  try {
-    const body = {}; body[field] = value;
-    await api('PUT', '/api/friends/' + encodeURIComponent(nid), body);
-    status('✓ Updated');
-  } catch(e) { status('⚠ ' + e.message); }
-}
-
-async function removeFriend(nid) {
-  if (!confirm('Remove ' + nid + '?')) return;
-  try {
-    await api('DELETE', '/api/friends/' + encodeURIComponent(nid));
-    loadFriends();
-    refreshNodes();
-    status('✓ Removed');
-  } catch(e) { status('⚠ ' + e.message); }
-}
-
-// ── Mesh nodes ────────────────────────────────────────────────
-async function refreshNodes() {
-  try {
-    const nodes = await api('GET', '/api/nodes');
-    renderNodes(nodes);
-    status(`● ${nodes.length} nodes on mesh`);
-  } catch(e) {
-    document.getElementById('nodes-list').innerHTML = '<div class="empty">⚠ Cannot reach mesh — is display_map.py running?</div>';
+    await refreshNodes();
+    showToast('Icon saved');
+  } catch (error) {
+    showToast(error.message, true);
   }
 }
 
-function renderNodes(nodes) {
-  const el = document.getElementById('nodes-list');
-  if (!nodes.length) {
-    el.innerHTML = '<div class="empty">No mesh nodes detected.</div>';
-    return;
-  }
-  let html = '<table><tr><th>Name</th><th>Node ID</th><th></th></tr>';
-  nodes.forEach(n => {
-    const action = n.is_friend
-      ? '<span style="color:#4ecca3;font-size:10px">✓ friend</span>'
-      : `<button onclick="quickAdd('${esc(n.node_id)}','${esc(n.name||'')}')" class="green">+ Add</button>`;
-    html += `<tr>
-      <td>${esc(n.name||'unknown')}</td>
-      <td><span class="node-id">${esc(n.node_id)}</span></td>
-      <td>${action}</td>
-    </tr>`;
-  });
-  html += '</table>';
-  el.innerHTML = html;
+function formatTime(timestamp) {
+  if (!timestamp) return 'Position time unavailable';
+  const value = new Date(Number(timestamp) * 1000);
+  return `Shared ${value.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
 }
 
-function quickAdd(nid, name) {
-  document.getElementById('add-id').value = nid;
-  document.getElementById('add-name').value = name || '';
-  document.getElementById('add-name').focus();
+function showToast(message, error=false) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = `toast${error?' error':''}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), 3000);
 }
 
-function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(value) {
+  return String(value||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 
-// ── Init ──────────────────────────────────────────────────────
-loadFriends();
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeEmojiPicker(); });
 refreshNodes();
-setInterval(refreshNodes, 30000);
+setInterval(refreshNodes, 15000);
 </script>
 </body>
 </html>""".replace("__EMOJI_CATALOG__", json.dumps(emoji_catalog(), ensure_ascii=False))
 
 
 class FriendServer(threading.Thread):
-    """Background thread running the friend management HTTP server."""
+    """Background thread running the Channel 1 emoji web app."""
 
-    def __init__(self, store: FriendStore, mesh_interface=None, port: int = 8051):
-        super().__init__(daemon=True, name="friend-server")
+    def __init__(self, store: FriendStore, node_source=None, port: int = 8051):
+        super().__init__(daemon=True, name="channel-location-server")
         self._store = store
-        self._mesh = mesh_interface  # set later by display_map
+        self._node_source = node_source or (lambda: [])
         self._port = port
-
-    def set_mesh(self, interface):
-        """Attach a Meshtastic interface for live node discovery."""
-        self._mesh = interface
 
     def run(self):
         server = HTTPServer(
-            ("0.0.0.0", self._port), _make_handler(self._store, self._mesh)
+            ("0.0.0.0", self._port),
+            _make_handler(self._store, self._node_source),
         )
-        print(f"[friend-server] listening on :{self._port}")
+        print(f"[channel-location-server] listening on :{self._port}")
         server.serve_forever()
 
     def get_port(self) -> int:
         return self._port
 
 
-def _make_handler(store, mesh_iface):
-    """Factory to bind store and mesh to the handler class."""
+def _make_handler(store, node_source):
+    """Factory binding preference storage and the live Channel 1 node source."""
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -336,7 +262,7 @@ def _make_handler(store, mesh_iface):
             elif path == "/api/friends":
                 self._serve_json(store.get_friends())
             elif path == "/api/nodes":
-                self._serve_json(_list_mesh_nodes(mesh_iface, store))
+                self._serve_json(_list_channel_nodes(node_source, store))
             elif path.startswith("/api/friends/"):
                 node_id = path.split("/api/friends/")[1]
                 friend = store.get_by_id(node_id)
@@ -365,7 +291,18 @@ def _make_handler(store, mesh_iface):
         def do_PUT(self):
             path = urlparse(self.path).path
             body = self._read_body()
-            if path.startswith("/api/friends/"):
+            if path.startswith("/api/nodes/") and path.endswith("/emoji"):
+                node_id = path.removeprefix("/api/nodes/").removesuffix("/emoji")
+                try:
+                    record = _set_node_emoji(
+                        store, node_source, node_id, body.get("emoji", "")
+                    )
+                    self._serve_json(record)
+                except KeyError:
+                    self._error(404, "channel 1 node not found")
+                except ValueError as e:
+                    self._error(409, str(e))
+            elif path.startswith("/api/friends/"):
                 node_id = path.split("/api/friends/")[1]
                 try:
                     record = store.update(node_id, **body)
@@ -432,22 +369,41 @@ def _make_handler(store, mesh_iface):
     return Handler
 
 
-def _list_mesh_nodes(mesh_iface, store: FriendStore) -> list[dict]:
-    """Return all mesh nodes with an is_friend flag."""
-    if mesh_iface is None:
-        return []
-    friend_ids = store.get_friend_ids()
+def _list_channel_nodes(node_source, store: FriendStore) -> list[dict]:
+    """Return found Channel 1 nodes with their effective symbols."""
+    preferences = {
+        record["node_id"]: record for record in store.get_friends()
+    }
+    source_nodes = [dict(node) for node in node_source()]
+    visible_ids = {node["node_id"] for node in source_nodes}
+    used = {
+        record["emoji"]
+        for node_id, record in preferences.items()
+        if node_id in visible_ids
+    }
     nodes = []
-    try:
-        for node_id, data in mesh_iface.nodes.items():
-            user = data.get("user", {})
-            nodes.append(
-                {
-                    "node_id": node_id,
-                    "name": user.get("longName", user.get("shortName", "")),
-                    "is_friend": node_id in friend_ids,
-                }
-            )
-    except Exception:
-        pass
-    return nodes
+    for result in sorted(source_nodes, key=lambda item: item["node_id"]):
+        preference = preferences.get(result["node_id"])
+        if preference:
+            result["emoji"] = preference["emoji"]
+            result["custom_emoji"] = True
+        else:
+            result["emoji"] = default_emoji(result["node_id"], used)
+            result["custom_emoji"] = False
+            used.add(result["emoji"])
+        nodes.append(result)
+    return sorted(nodes, key=lambda item: item.get("name", "").lower())
+
+
+def _set_node_emoji(store, node_source, node_id, emoji):
+    """Create or update a persistent emoji preference for a found node."""
+    node = next(
+        (item for item in node_source() if item.get("node_id") == node_id),
+        None,
+    )
+    if node is None:
+        raise KeyError(node_id)
+    existing = store.get_by_id(node_id)
+    if existing:
+        return store.update(node_id, emoji=emoji)
+    return store.add(node_id=node_id, name=node.get("name", node_id), emoji=emoji)

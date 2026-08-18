@@ -83,6 +83,25 @@ class ChannelPositionCache:
             records.append((node_id, {"user": user, "position": position}))
         return records
 
+    def web_nodes(self, interface=None):
+        """Return JSON-ready Channel 1 nodes for the emoji web app."""
+        nodes = []
+        for node_id, data in self.snapshot(interface):
+            position = data["position"]
+            user = data["user"]
+            nodes.append(
+                {
+                    "node_id": node_id,
+                    "name": user.get("longName") or user.get("shortName") or node_id,
+                    "short_name": user.get("shortName", ""),
+                    "brc_address": gps_to_burning_man(
+                        position["latitude"], position["longitude"]
+                    ),
+                    "position_time": position.get("time", 0),
+                }
+            )
+        return nodes
+
     def count(self):
         """Return the number of senders with a cached channel position."""
         with self._lock:

@@ -97,3 +97,12 @@ def test_channel_position_cache_snapshots_channel_one_sender_with_node_name():
     assert cache.count() == 1
     assert list(burners) == ["Zack"]
     assert burners["Zack"]["coordinates"]["time"] == 123
+    assert cache.web_nodes(interface) == [
+        {
+            "node_id": "!1e447ab7",
+            "name": "Zack",
+            "short_name": "zack",
+            "brc_address": "12:00+The Man",
+            "position_time": 123,
+        }
+    ]
