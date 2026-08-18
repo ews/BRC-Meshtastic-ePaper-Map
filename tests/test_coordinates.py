@@ -22,7 +22,7 @@ def test_position_beyond_temple_uses_distance_from_man():
 
     address = gps_to_burning_man(gps.latitude, gps.longitude)
     assert address.startswith(("11:59, ", "12:00, "))
-    assert address.endswith("4000 ft from Man")
+    assert address.endswith("4000ft from Man")
 
 
 def test_position_in_built_city_arc_uses_street_name():
@@ -39,4 +39,4 @@ def test_position_near_pentagon_uses_trash_fence_address():
     py = c.man_svg[1] - c.svg_city_man_to_trashfence_pixel + distance_inside_px
     lat, lon = c.projection.pixel_to_gps(px, py)
 
-    assert gps_to_burning_man(lat, lon).endswith("and Trash Fence")
+    assert gps_to_burning_man(lat, lon).endswith("+Trash Fence")

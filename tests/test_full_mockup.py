@@ -15,8 +15,8 @@ def test_mockup_has_requested_number_of_people_and_brc_addresses():
     assert len(set(burners)) == 6
     assert all(
         "+" in data["bm_coordinates"]
-        or " ft from Man" in data["bm_coordinates"]
-        or "and Trash Fence" in data["bm_coordinates"]
+        or "ft from Man" in data["bm_coordinates"]
+        or "+Trash Fence" in data["bm_coordinates"]
         for data in burners.values()
     )
     emojis = [data["emoji"] for data in burners.values()]
@@ -53,7 +53,7 @@ def test_default_mockup_covers_non_city_areas_and_every_street_ring():
             assert radius_ft >= full_mockup.BEYOND_CITY_MIN_DISTANCE_FT
             assert not 2 <= full_mockup._clock_value(data["bm_coordinates"]) <= 10
         elif zone == "Trash Fence":
-            assert data["bm_coordinates"].endswith("and Trash Fence")
+            assert data["bm_coordinates"].endswith("+Trash Fence")
 
 
 def test_location_updates_keep_burner_identity_and_emoji():

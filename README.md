@@ -50,8 +50,7 @@ The main process:
 Key features include:
 
 - GPS to clock-and-street, distance, and trash-fence addresses such as
-  `09:30+B`, `11:15, 4200 ft from Man`, or
-  `11:30 and Trash Fence`.
+  `09:30+B`, `11:15, 4200ft from Man`, or `11:30+Trash Fence`.
 - Anchor-based GPS-to-screen calibration.
 - Matching, persistent e-paper-safe symbols in the list and on the map.
 - A searchable emoji picker and friend allowlist web UI.
@@ -368,17 +367,17 @@ conversion then:
    matches within `poi_radius_ft` return the POI label.
 3. Rotates geographic bearing by `brc_noon` to obtain the BRC clock direction.
 4. Labels a point within `trash_fence_proximity_ft` of the pentagon edge as
-   clock plus `Trash Fence`, such as `11:30 and Trash Fence`.
+   clock plus `Trash Fence`, such as `11:30+Trash Fence`.
 5. Uses street names only within the built 2:00–10:00 city arc and between
    Esplanade and the end of the configured street rings.
 6. Walks the configured street-width list to select Esplanade or a lettered
    street inside that built arc.
 7. Labels every other position with clock and distance from the Man, such as
-   `11:15, 4200 ft from Man`.
+   `11:15, 4200ft from Man`.
 
 For example, `09:00+B` means the GPS bearing converts to the 9 o'clock radial
 and the distance falls inside the configured B Street band. A point inside
-Esplanade instead uses its distance, such as `03:13, 1800 ft from Man`.
+Esplanade instead uses its distance, such as `03:13, 1800ft from Man`.
 
 ### GPS to screen pixels
 
@@ -438,7 +437,7 @@ projection and BRC-address conversion, remain at least 24 pixels apart, and
 are rejected if their projected marker falls outside the trash-fence pentagon.
 Street locations are constrained to the built 2:00–10:00 city arc. Other
 non-city locations display clock plus distance from the Man, while locations
-within 200 feet of the pentagon display `HH:MM and Trash Fence`.
+within 200 feet of the pentagon display `HH:MM+Trash Fence`.
 The default output is `/tmp/brc-full-mockup.png`.
 
 Direct options:

@@ -111,7 +111,7 @@ def gps_to_burning_man(lat, lon):
             return info.get("clock", "") + "+" + name
 
     if distance_to_trash_fence_ft(lat, lon) <= c.trash_fence_proximity_ft:
-        return f"{clock} and Trash Fence"
+        return f"{clock}+Trash Fence"
 
     # Street names apply only to the built 2:00–10:00 city rings.
     remaining_distance = distance - c.distance_man_esplanade
@@ -122,7 +122,7 @@ def gps_to_burning_man(lat, lon):
                 return f"{clock}+{c.STREET_NAMES[index]}"
             remaining_distance -= street_distance
 
-    return f"{clock}, {distance:.0f} ft from Man"
+    return f"{clock}, {distance:.0f}ft from Man"
 
 
 def gps_to_image_coordinates(coord):

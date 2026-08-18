@@ -83,10 +83,10 @@ def _clock_value(address):
 
 def _address_zone(address):
     """Return the mock zone represented by a production BRC address."""
-    if address.endswith("and Trash Fence"):
+    if address.endswith("+Trash Fence"):
         return "Trash Fence"
     if "ft from Man" in address:
-        distance_ft = float(address.split(", ", 1)[1].split(" ", 1)[0])
+        distance_ft = float(address.split(", ", 1)[1].split("ft", 1)[0])
         if distance_ft < c.distance_man_esplanade:
             return "Near Man"
         return "Beyond City"
