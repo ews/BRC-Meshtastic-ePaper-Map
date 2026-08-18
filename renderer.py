@@ -93,7 +93,7 @@ def assign_burner_emojis(burners):
 def draw_node_labels(burners, draw, colors=None):
     """Draw matching emoji markers and detail-list entries for all burners."""
     dense_list = len(burners) > 10
-    list_scale = 1.2
+    list_scale = 0.96
     base_font_size = 10 if dense_list else 12
     font = ImageFont.truetype("./media/Font.ttc", base_font_size * list_scale)
     map_font = ImageFont.truetype("./media/Font.ttc", 18)
@@ -118,10 +118,7 @@ def draw_node_labels(burners, draw, colors=None):
         )
         draw.text((x, y), emoji, font=map_font, fill=color, anchor="mm")
 
-        detail = (
-            f"{emoji} {name}: {burner['bm_coordinates']} "
-            f"at {_time_str(burner['coordinates']['time'])}"
-        )
+        detail = _detail_text(name, burner, emoji)
         draw.text((10, text_start_height), detail, font=font, fill=color)
         text_start_height += text_step
 
@@ -176,5 +173,13 @@ def draw_test_coordinates(draw, calibrate=False):
 
 
 def _time_str(timestamp):
-    """Format a Unix timestamp as HH:MM:SS."""
-    return datetime.fromtimestamp(timestamp).strftime("%H:%M:%S")
+    """Format a Unix timestamp as HH:MM."""
+    return datetime.fromtimestamp(timestamp).strftime("%H:%M")
+
+
+def _detail_text(name, burner, emoji):
+    """Return one compact top-list entry."""
+    return (
+        f"{emoji} {name}: {burner['bm_coordinates']} "
+        f"@ {_time_str(burner['coordinates']['time'])}"
+    )

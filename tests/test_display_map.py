@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import display_map
 import pytest
 from PIL import Image, ImageChops, ImageDraw
-from renderer import assign_burner_emojis, draw_node_labels
+from renderer import _detail_text, assign_burner_emojis, draw_node_labels
 
 
 def _node(lat=40.783247, lon=-119.207884):
@@ -57,6 +57,14 @@ def test_emoji_labels_render_on_list_and_map():
 
     assert burners["Alice"]["emoji"]
     assert ImageChops.difference(frame, blank).getbbox() is not None
+
+
+def test_top_list_entry_uses_compact_hour_and_minute_timestamp():
+    detail = _detail_text("Alice", _node(), "♥")
+
+    assert detail.startswith("♥ Alice: 12:00+The Man @ ")
+    assert detail.count(":") == 3
+    assert " at " not in detail
 
 
 def test_emoji_labels_never_use_requested_yellow():

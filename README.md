@@ -203,8 +203,8 @@ hostname.
 
 Each rendered frame contains:
 
-- A detail list at the top with symbol, Meshtastic long name, BRC address, and
-  the node position timestamp.
+- A compact detail list at the top with symbol, Meshtastic long name, BRC
+  address, and an `@ HH:MM` node-position timestamp.
 - The city map and dotted trash-fence outline.
 - A colored circular symbol marker at each projected location.
 - `updated: YYYY-MM-DD HH:MM:SS` in the bottom-right corner, using the Pi's
@@ -755,7 +755,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 45 tests covering:
+The current suite contains 46 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
