@@ -52,8 +52,10 @@ brc:
 # --- Behavior ---
 # Minimum distance (feet) a node must move to trigger a screen refresh
 min_distance_refresh_ft: 50
+# Zero-based Meshtastic channel index used for incoming camp locations
+location_channel_index: 1
 
-# --- Friend Filtering ---
+# --- Optional Emoji Preferences ---
 friends_file: "friends.json"
 friend_server_port: 8051
 

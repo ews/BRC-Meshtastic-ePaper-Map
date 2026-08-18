@@ -1,10 +1,10 @@
 # BRC Meshtastic ePaper Map
 
-Display Meshtastic friends on a calibrated Black Rock City map using a
+Display Meshtastic camp locations on a calibrated Black Rock City map using a
 WaveShare 7.3-inch E6/Spectra 6 e-paper panel. The application converts GPS
-coordinates into playa addresses, assigns persistent symbols to friends,
-records position and chat history in SQLite, and provides browser tools for
-friend management and map calibration.
+coordinates shared on Meshtastic channel 1 into playa addresses, assigns
+stable symbols, records position and chat history in SQLite, and provides
+browser tools for symbol preferences and map calibration.
 
 ![BRC map display](media/display_map.png)
 
@@ -16,7 +16,7 @@ friend management and map calibration.
 - [Raspberry Pi installation](#raspberry-pi-installation)
 - [Running the map](#running-the-map)
 - [Display behavior](#display-behavior)
-- [Friends and emoji](#friends-and-emoji)
+- [Channel 1 locations and emoji](#channel-1-locations-and-emoji)
 - [Position and conversation history](#position-and-conversation-history)
 - [GPS, playa addresses, and projection](#gps-playa-addresses-and-projection)
 - [Map calibration](#map-calibration)
@@ -35,16 +35,16 @@ friend management and map calibration.
 The main process:
 
 1. Loads the static BRC map and immediately displays it with an update time.
-2. Starts the friend-management server on port `8051` unless friend filtering
-   is disabled.
+2. Starts the optional emoji-preference server on port `8051` unless disabled.
 3. Connects to a Meshtastic radio over serial. If the serial constructor does
    not produce a usable node database, it tries Meshtastic TCP on `localhost`.
-4. Polls the radio's node database every `sleep_seconds`.
-5. Converts every node with GPS data to a BRC address and screen position.
-6. Saves all discovered positions to SQLite before applying display filters.
-7. Shows only friends from `friends.json`, unless `--no-friends` was supplied.
-8. Refreshes the e-paper when friends join or leave, an emoji changes, or a
-   displayed friend moves at least `min_distance_refresh_ft`.
+4. Listens for live position packets on Meshtastic channel 1 and ignores
+   positions received on other channels.
+5. Converts each Channel 1 GPS position to a BRC address and screen position.
+6. Saves Channel 1 position history to SQLite.
+7. Shows every Channel 1 location; `friends.json` never filters visibility.
+8. Refreshes the e-paper when nodes join or leave, an emoji changes, or a
+   displayed node moves at least `min_distance_refresh_ft`.
 9. Saves received Meshtastic text packets to SQLite as they arrive.
 
 Key features include:
@@ -52,8 +52,9 @@ Key features include:
 - GPS to clock-and-street, distance, and trash-fence addresses such as
   `09:30+B`, `11:15, 4200ft from Man`, or `11:30+Trash Fence`.
 - Anchor-based GPS-to-screen calibration.
-- Matching, persistent e-paper-safe symbols in the list and on the map.
-- A searchable emoji picker and friend allowlist web UI.
+- Channel 1 camp-location filtering following the Burning Mesh camp setup.
+- Matching, stable e-paper-safe symbols in the list and on the map.
+- A searchable optional emoji-preference web UI with no display allowlist.
 - A 15-person GPS-first mockup covering the area near the Man, every street
   ring, the non-city area beyond Temple, and the trash fence.
 - SQLite position and conversation history with CSV exports.
@@ -185,7 +186,7 @@ Direct invocation is also supported:
 | `-d`, `--debug` | Draw fixed calibration landmarks instead of connecting to Meshtastic. |
 | `-s`, `--screen` | Open frames with the desktop image viewer instead of initializing e-paper. |
 | `-c`, `--calibrate` | Accepted by the CLI; calibration is performed by `make calibrate`. |
-| `--no-friends` | Disable the allowlist, show all positioned nodes, and do not start the friend web server. |
+| `--no-friends` | Disable the optional friend/emoji server and stored emoji overrides; Channel 1 visibility is unchanged. |
 
 The initial base map is sent to the display before radio discovery. A missing
 radio therefore does not leave the panel blank while connection retries run.
@@ -194,9 +195,9 @@ radio therefore does not leave the panel blank while connection retries run.
 
 The application first creates a Meshtastic `SerialInterface`. If that object
 has no node database, it explicitly tries `TCPInterface("localhost")`.
-Connection and node-poll failures retry after 5, 10, 20, 40, 80, and then a
-maximum of 120 seconds. There is currently no command-line option for a remote
-TCP hostname.
+Initial connection failures retry after 5, 10, 20, 40, 80, and then a maximum
+of 120 seconds. There is currently no command-line option for a remote TCP
+hostname.
 
 ## Display behavior
 
@@ -218,11 +219,24 @@ changes, or someone moves at least the configured distance. SQLite history is
 independent of this decision and can accept new position reports without an
 e-paper refresh.
 
-## Friends and emoji
+## Channel 1 locations and emoji
 
-By default the e-paper displays only node IDs listed in `friends.json`. An
-empty friend list deliberately shows no people. Position history is still
-recorded for every positioned node known to the radio.
+The e-paper displays every live location packet received on zero-based
+Meshtastic channel index `1`. It does not use the merged NodeDB position for
+visibility because NodeDB does not retain the channel that supplied a position.
+Consequently, a node first appears after its next live Channel 1 position
+broadcast following application startup.
+
+This matches the recommended setup in the
+[Burning Mesh camp channel and location-sharing guide](https://docs.burningmesh.org/en/guides/camp_channels_and_locations):
+keep Everyone on channel 0 with position sharing disabled, then enable agreed
+automatic position sharing on the encrypted camp channel at channel 1. The
+radio broadcasts automatically on only the lowest-numbered channel with
+location sharing enabled.
+
+`friends.json` is optional emoji metadata only. An empty file still displays
+all Channel 1 locations. Nodes without an override receive a deterministic
+symbol derived from their node ID.
 
 Start `make run-map`, then open:
 
@@ -230,12 +244,12 @@ Start `make run-map`, then open:
 http://<raspberry-pi-ip>:8051
 ```
 
-The friend manager supports:
+The preference manager supports:
 
 - Adding a node by ID and name.
 - Editing name, four-character short name, notes, and symbol.
-- Removing a friend.
-- Viewing mesh nodes and adding one to the allowlist.
+- Removing stored metadata without hiding the live node.
+- Viewing mesh nodes and adding an emoji override.
 - Searching the symbol picker by glyph, name, or keyword.
 
 The supported glyph catalog contains 15 symbols known to exist in
@@ -244,8 +258,9 @@ When no symbol is selected, a deterministic SHA-256-based assignment is made
 from the node ID. Assignments are stable across restarts and distinct while
 unused symbols remain. Duplicate or unsupported selections are rejected.
 
-`friends.json` is only an allowlist and UI metadata store. It is written when
-a friend is added, edited, removed, or migrated—not during position polling.
+`friends.json` is only an optional metadata and emoji-override store. It is
+written when a record is added, edited, removed, or migrated—not when a
+location arrives. Adding or removing a record never changes who is displayed.
 A record has this shape:
 
 ```json
@@ -263,7 +278,7 @@ The symbol is applied to the live node on the map. The displayed name comes
 from the Meshtastic node's `longName`; the stored name and notes are friend
 manager metadata. Legacy `last_seen` fields are removed automatically.
 
-To temporarily show everyone without changing `friends.json`:
+To disable the preference server and ignore all stored emoji overrides:
 
 ```bash
 .venv/bin/python display_map.py --no-friends
@@ -274,11 +289,11 @@ To temporarily show everyone without changing `friends.json`:
 The database path defaults to `mesh_history.sqlite3`. Python's built-in
 `sqlite3` module is used; no external database service is required. The store
 uses WAL journaling and `synchronous=NORMAL`, and it is safe for the
-Meshtastic receive thread and polling loop to share.
+Meshtastic receive thread and display loop to share.
 
-History is collected before friend filtering:
+History collection follows the Channel 1 location stream:
 
-- `positions` receives positioned nodes from each radio poll.
+- `positions` receives the latest positions observed on Channel 1.
 - Duplicate positions are ignored using node ID, source timestamp, latitude,
   and longitude.
 - All received `meshtastic.receive.text` packets are saved immediately.
@@ -502,8 +517,9 @@ Edit `config.yaml`; `config.py` is the loader and derived-value module.
 | `brc.street_last_letter` | `K` | Final generated street name. |
 | `brc.brc_noon` | `1.5` hours | Rotation from geographic bearing to BRC clock. |
 | `min_distance_refresh_ft` | `50` ft | Movement needed to refresh e-paper. |
-| `friends_file` | `friends.json` | Friend allowlist and emoji file. |
-| `friend_server_port` | `8051` | Friend manager HTTP port. |
+| `location_channel_index` | `1` | Zero-based Meshtastic channel accepted for live location display. |
+| `friends_file` | `friends.json` | Optional metadata and emoji overrides; never an allowlist. |
+| `friend_server_port` | `8051` | Optional emoji-preference manager HTTP port. |
 | `history_database` | `mesh_history.sqlite3` | SQLite history file. |
 | `points_of_interest` | Temple, Center Camp, The Man | Radial-distance address overrides. |
 | `poi_radius_ft` | `50` ft | Tolerance for a POI override. |
@@ -537,7 +553,7 @@ coordinates outside the canvas are clamped to its nearest edge.
 | `make dump-conversations` | Export received text to `conversations.csv`. |
 | `make test-screen` | Run the E6 panel hardware test. |
 | `make pytest` | Run all automated tests verbosely. |
-| `make clean` | Remove `.venv`, Python caches, pytest cache, and build artifacts; history and friend data remain. |
+| `make clean` | Remove `.venv`, Python caches, pytest cache, and build artifacts; history and emoji preferences remain. |
 | `make help` | Show Make targets and their short descriptions. |
 
 Export targets also accept these Make variables:
@@ -555,30 +571,32 @@ Export targets also accept these Make variables:
 ```text
 Meshtastic serial ──fallback──> TCP localhost
        │
-       ├── node database poll ──> GPS/BRC conversion ──> SQLite positions
+       ├── Channel 1 position event ──> latest-location cache
        │                                      │
-       │                                      └──> friend ID filter
-       │                                                │
-       │                                                └──> renderer ──> E6
+       │                                      ├──> GPS/BRC conversion
+       │                                      ├──> SQLite positions
+       │                                      └──> optional emoji override
+       │                                                   │
+       │                                                   └──> renderer ──> E6
        │
        └── received text event ───────────────────────────────> SQLite messages
 
-friends.json ──> display allowlist + persistent emoji
-config.yaml  ──> display, geometry, projection, ports, and file paths
+friends.json ──> optional persistent emoji overrides (never visibility)
+config.yaml  ──> channel, display, geometry, projection, ports, and file paths
 ```
 
 ### Repository map
 
 | Path | Responsibility |
 | --- | --- |
-| `display_map.py` | Startup, polling loop, friend filtering, history wiring, refresh decisions, CLI. |
-| `mesh.py` | Serial/TCP connection, retry logic, node extraction, GPS enrichment. |
+| `display_map.py` | Startup, Channel 1 event wiring, history, refresh decisions, and CLI. |
+| `mesh.py` | Serial/TCP connection, Channel 1 position cache, node extraction, GPS enrichment. |
 | `coordinates.py` | Geodesic distance, BRC address conversion, projection wrapper. |
 | `projection.py` | Forward/inverse anchor-based similarity transform. |
 | `renderer.py` | Fence, markers, symbols, detail list, debug labels, update timestamp. |
 | `burner_emojis.py` | Supported glyph catalog, validation, deterministic assignment. |
-| `friend_store.py` | Thread-safe, atomic JSON friend CRUD and migrations. |
-| `friend_server.py` | Embedded friend UI and REST API on port 8051. |
+| `friend_store.py` | Thread-safe, atomic optional metadata/emoji CRUD and migrations. |
+| `friend_server.py` | Embedded emoji-preference UI and REST API on port 8051. |
 | `history_store.py` | Thread-safe SQLite schema, position batches, text-packet storage. |
 | `calibrate.py` | Embedded calibration UI/API on port 8050. |
 | `config.yaml` | User-editable settings. |
@@ -604,7 +622,7 @@ config.yaml  ──> display, geometry, projection, ports, and file paths
 | --- | --- | --- |
 | `.venv/` | Python virtual environment. | No |
 | `debug.log` | Application INFO/error log. | No |
-| `friends.json` | Allowlist, metadata, and symbols. | Yes in its initial empty form |
+| `friends.json` | Optional metadata and emoji overrides; not a display filter. | Yes in its initial empty form |
 | `mesh_history.sqlite3` | Position and received-message database. | No |
 | `mesh_history.sqlite3-wal`, `-shm` | SQLite WAL runtime files. | No |
 | `mesh-history.csv` | Default position export. | No |
@@ -613,11 +631,11 @@ config.yaml  ──> display, geometry, projection, ports, and file paths
 
 ## Web APIs
 
-### Friend manager (`:8051`)
+### Optional emoji-preference manager (`:8051`)
 
 | Method | Path | Result |
 | --- | --- | --- |
-| `GET` | `/` | Embedded friend-management page. |
+| `GET` | `/` | Embedded metadata and emoji-preference page. |
 | `GET` | `/api/friends` | All friend records. |
 | `GET` | `/api/friends/<node_id>` | One friend or `404`. |
 | `GET` | `/api/nodes` | Current mesh nodes with `is_friend`. |
@@ -627,6 +645,7 @@ config.yaml  ──> display, geometry, projection, ports, and file paths
 
 Invalid/duplicate IDs and emoji conflicts return `409`. Friend writes use a
 temporary file followed by `os.replace` so readers never see partial JSON.
+These records do not filter Channel 1 locations.
 
 ### Calibrator (`:8050`)
 
@@ -643,7 +662,8 @@ not expose these ports to the public internet.
 
 - Use a high-endurance SD card for a field deployment and keep adequate free
   space.
-- Position writes are deduplicated and batched once per poll; conversations
+- Position writes are deduplicated and sampled from the latest-location cache
+  once per display-loop interval; conversations
   are typically low-volume individual writes. WAL reduces contention but does
   not replace backups.
 - Export CSV files periodically or copy the database after stopping the map.
@@ -688,10 +708,16 @@ Retries are expected and continue indefinitely with exponential backoff.
 
 ### The map appears but no people appear
 
-- An empty `friends.json` displays nobody by design.
-- Open `http://<pi-ip>:8051` and add node IDs, or run with `--no-friends`.
-- Confirm the nodes have latitude/longitude data and a GPS fix.
-- Inspect `debug.log` for `no position` messages.
+- Confirm the camp channel is zero-based channel index 1 on every radio.
+- Keep position sharing off on channel 0 and enable it on channel 1; automatic
+  broadcasts use only the lowest-numbered location-enabled channel.
+- Wait for a new live position broadcast after `make run-map` starts. Old
+  NodeDB positions are intentionally not used because they lack source-channel
+  information.
+- Look for `received channel 1 position from !...` in `debug.log`.
+- If logs show positions on another channel, correct the radio channel setup or
+  change `location_channel_index` in `config.yaml` deliberately.
+- `friends.json` can be empty and does not affect visibility.
 
 ### Markers are misplaced
 
@@ -702,8 +728,8 @@ Retries are expected and continue indefinitely with exponential backoff.
 
 ### The display does not refresh every minute
 
-The radio is polled every minute by default, but e-paper refreshes only after a
-displayed-set change, emoji change, or movement of at least
+The Channel 1 position cache is checked every minute by default, but e-paper
+refreshes only after a displayed-set change, emoji change, or movement of at least
 `min_distance_refresh_ft`. The bottom-right time is the last composed frame,
 not a heartbeat clock.
 
@@ -712,10 +738,10 @@ not a heartbeat clock.
 Run `make run-map` at least once, verify `history_database` in `config.yaml`,
 or pass the correct file with `HISTORY_DATABASE=/path/to/file.sqlite3`.
 
-### Friend manager or calibrator is unreachable
+### Emoji manager or calibrator is unreachable
 
-- Friend management exists only when the map runs without `--no-friends`.
-- Use port `8051` for friends and `8050` for calibration.
+- Emoji management exists only when the map runs without `--no-friends`.
+- Use port `8051` for emoji preferences and `8050` for calibration.
 - Confirm the Pi and browser are on the same network and local firewall rules
   allow the port.
 
@@ -729,7 +755,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 42 tests covering:
+The current suite contains 45 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
@@ -738,7 +764,7 @@ The current suite contains 42 tests covering:
 - Friend CRUD, emoji persistence/conflicts, migration, and UI picker structure.
 - SQLite position/chat storage and deduplication.
 - CSV exports.
-- Serial selection and TCP fallback.
+- Serial selection, TCP fallback, Meshtastic position parsing, and Channel 1 filtering.
 - GPS-first mock population, movement, timing, and e-paper lifecycle.
 
 Formatting configuration lives in `pyproject.toml` (`ruff`, 88-character line

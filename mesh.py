@@ -1,6 +1,7 @@
 """Meshtastic radio interface — connection, polling, and node data extraction."""
 
 import time
+import threading
 from datetime import datetime
 
 import meshtastic
@@ -16,6 +17,76 @@ logging = c.logging
 _RETRY_BASE_SEC = 5
 _RETRY_MAX_SEC = 120
 _RETRY_FACTOR = 2
+
+
+class ChannelPositionCache:
+    """Keep the latest positions received on one Meshtastic channel."""
+
+    def __init__(self, channel_index):
+        self.channel_index = int(channel_index)
+        self._positions = {}
+        self._logged_other_channels = set()
+        self._lock = threading.Lock()
+
+    def receive(self, packet, interface=None):
+        """Record a decoded position packet when it belongs to this channel."""
+        try:
+            packet_channel = int(packet.get("channel", 0))
+        except (TypeError, ValueError):
+            logging.warning(
+                "ignoring position with invalid channel %r", packet.get("channel")
+            )
+            return
+        if packet_channel != self.channel_index:
+            with self._lock:
+                first_on_channel = packet_channel not in self._logged_other_channels
+                self._logged_other_channels.add(packet_channel)
+            if first_on_channel:
+                logging.info(
+                    "ignoring positions on channel %d; tracking channel %d",
+                    packet_channel,
+                    self.channel_index,
+                )
+            return
+
+        position = _normalized_position(packet.get("decoded", {}).get("position", {}))
+        if position is None:
+            logging.info(
+                "ignoring channel %d position without latitude/longitude",
+                self.channel_index,
+            )
+            return
+
+        node_id = _packet_node_id(packet)
+        if not node_id:
+            logging.info("ignoring channel %d position without sender", self.channel_index)
+            return
+
+        with self._lock:
+            self._positions[node_id] = position
+        logging.info("received channel %d position from %s", self.channel_index, node_id)
+
+    def snapshot(self, interface=None):
+        """Return NodeDB-shaped records for conversion and rendering."""
+        with self._lock:
+            positions = {
+                node_id: dict(position)
+                for node_id, position in self._positions.items()
+            }
+
+        nodes = getattr(interface, "nodes", {}) or {}
+        records = []
+        for node_id, position in positions.items():
+            user = dict(nodes.get(node_id, {}).get("user", {}))
+            user.setdefault("id", node_id)
+            user.setdefault("longName", user.get("shortName") or node_id)
+            records.append((node_id, {"user": user, "position": position}))
+        return records
+
+    def count(self):
+        """Return the number of senders with a cached channel position."""
+        with self._lock:
+            return len(self._positions)
 
 
 def time_from_timestamp(timestamp):
@@ -88,12 +159,16 @@ def add_bm_coordinates(burners):
     for node_id, data in burners:
         logging.debug("processing node %s", node_id)
         logging.debug("%s", data)
-        username = data["user"]["longName"]
+        user = data.get("user", {})
+        username = user.get("longName") or user.get("shortName") or node_id
+        coordinates = _normalized_position(
+            data.get("position", data.get("coordinates", {}))
+        )
 
-        if "coordinates" in data and "latitude" in data["coordinates"]:
+        if coordinates is not None:
             output[username] = {}
             output[username]["node_id"] = node_id
-            output[username]["coordinates"] = data["coordinates"]
+            output[username]["coordinates"] = coordinates
 
             lat = output[username]["coordinates"]["latitude"]
             lon = output[username]["coordinates"]["longitude"]
@@ -104,6 +179,33 @@ def add_bm_coordinates(burners):
             )
             logging.debug("image coordinates %s", output[username]["image_coordinates"])
         else:
-            logging.info("no position for %s %s", username, data)
+            logging.info("no position for %s (%s)", username, node_id)
 
     return output
+
+
+def _normalized_position(position):
+    """Return a position with decimal latitude/longitude, or None."""
+    if not isinstance(position, dict):
+        return None
+    normalized = {key: value for key, value in position.items() if key != "raw"}
+    if "latitude" not in normalized and "latitudeI" in normalized:
+        normalized["latitude"] = normalized["latitudeI"] * 1e-7
+    if "longitude" not in normalized and "longitudeI" in normalized:
+        normalized["longitude"] = normalized["longitudeI"] * 1e-7
+    if normalized.get("latitude") is None or normalized.get("longitude") is None:
+        return None
+    normalized.setdefault("time", 0)
+    return normalized
+
+
+def _packet_node_id(packet):
+    """Return a Meshtastic !hex node ID from a decoded packet."""
+    if packet.get("fromId"):
+        return str(packet["fromId"])
+    if packet.get("from") is None:
+        return None
+    try:
+        return f"!{int(packet['from']):08x}"
+    except (TypeError, ValueError):
+        return str(packet["from"])

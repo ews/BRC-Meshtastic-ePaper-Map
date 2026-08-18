@@ -61,9 +61,10 @@ STREET_DISTANCE = 0.002
 
 # --- Behavior ---
 min_distance_refresh_ft = float(_cfg["min_distance_refresh_ft"])
+location_channel_index = int(_cfg.get("location_channel_index", 1))
 history_database = _cfg.get("history_database", "mesh_history.sqlite3")
 
-# Friend filtering
+# Optional friend metadata supplies emoji overrides but does not filter locations.
 friends_file = _cfg.get("friends_file", "friends.json")
 friend_server_port = int(_cfg.get("friend_server_port", 8051))
 

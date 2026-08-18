@@ -74,17 +74,18 @@ def test_emoji_labels_never_use_requested_yellow():
     assert (0, 0, 0) in pixels
 
 
-def test_friend_filter_merges_persistent_emoji():
+def test_friend_metadata_overrides_emoji_without_filtering_locations():
     class Store:
         def get_friends(self):
             return [{"node_id": "!1234", "emoji": "♥"}]
 
-    filtered, _ = display_map._filter_friend_burners(
+    burners, _ = display_map._apply_friend_emojis(
         {"Alice": _node(), "Unknown": {**_node(), "node_id": "!9999"}}, Store()
     )
 
-    assert list(filtered) == ["Alice"]
-    assert filtered["Alice"]["emoji"] == "♥"
+    assert list(burners) == ["Alice", "Unknown"]
+    assert burners["Alice"]["emoji"] == "♥"
+    assert "emoji" not in burners["Unknown"]
 
 
 def test_map_frame_is_rgb_and_has_supported_dimensions():

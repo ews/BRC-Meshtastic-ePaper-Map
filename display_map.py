@@ -14,8 +14,8 @@ import config as c
 from coordinates import distance_ft, gps_to_image_coordinates
 from history_store import HistoryStore, sender_name_for_packet
 from mesh import (
+    ChannelPositionCache,
     add_bm_coordinates,
-    get_mesh_info,
 )
 from mesh import (
     connect_serial as connect_mesh_serial,
@@ -145,22 +145,21 @@ def _display_frame(frame, screen, epd):
         epd.display(epd.getbuffer(frame))
 
 
-def _filter_friend_burners(burners, friend_store):
-    """Filter mesh burners and merge their persistent friend emoji."""
+def _apply_friend_emojis(burners, friend_store):
+    """Apply optional persistent emoji overrides without filtering nodes."""
     friends = {friend["node_id"]: friend for friend in friend_store.get_friends()}
-    filtered = {
-        name: data for name, data in burners.items() if data.get("node_id") in friends
-    }
-    for data in filtered.values():
-        data["emoji"] = friends[data["node_id"]]["emoji"]
-    return filtered, friends
+    for data in burners.values():
+        friend = friends.get(data.get("node_id"))
+        if friend:
+            data["emoji"] = friend["emoji"]
+    return burners, friends
 
 
 def main(args):
     base = _load_map()
     frame, draw = _new_frame(base)
 
-    # Friend filtering
+    # Friend metadata is optional and affects emojis only, never visibility.
     friend_store = None
     friend_srv = None
     if not args.no_friends:
@@ -168,7 +167,11 @@ def main(args):
         from friend_store import FriendStore
 
         friend_store = FriendStore(c.friends_file)
-        logging.info("loaded %d friends from %s", friend_store.count(), c.friends_file)
+        logging.info(
+            "loaded %d optional emoji overrides from %s",
+            friend_store.count(),
+            c.friends_file,
+        )
         friend_srv = FriendServer(friend_store, port=c.friend_server_port)
         friend_srv.start()
         logging.info("friend server at http://0.0.0.0:%d", c.friend_server_port)
@@ -180,6 +183,8 @@ def main(args):
     interface = None
     history = HistoryStore(c.history_database)
     chat_callback = None
+    position_callback = None
+    channel_positions = ChannelPositionCache(c.location_channel_index)
     old_coords = {}
     needs_refresh = False
 
@@ -200,22 +205,29 @@ def main(args):
 
             chat_callback = save_chat
             pub.subscribe(chat_callback, "meshtastic.receive.text")
+            position_callback = channel_positions.receive
+            pub.subscribe(position_callback, "meshtastic.receive.position")
+            logging.info(
+                "showing positions received on Meshtastic channel %d",
+                c.location_channel_index,
+            )
             if friend_srv is not None:
                 friend_srv.set_mesh(interface)
 
         while True:
             if not args.debug:
-                mesh = get_mesh_info(interface)
-                burners = add_bm_coordinates(mesh)
+                burners = add_bm_coordinates(channel_positions.snapshot(interface))
                 saved = history.record_positions(burners)
                 if saved:
                     logging.info("saved %d new position reports", saved)
 
-                # Filter to friends only
+                # Friend records are optional emoji overrides, not an allowlist.
                 if friend_store is not None:
-                    burners, friends = _filter_friend_burners(burners, friend_store)
+                    burners, friends = _apply_friend_emojis(burners, friend_store)
                     logging.debug(
-                        "showing %d/%d friends", len(burners), len(friends)
+                        "showing %d channel locations with %d emoji overrides",
+                        len(burners),
+                        len(friends),
                     )
 
                 if not equal_bm_coordinates(burners, old_coords):
@@ -236,6 +248,8 @@ def main(args):
     finally:
         if chat_callback is not None:
             pub.unsubscribe(chat_callback, "meshtastic.receive.text")
+        if position_callback is not None:
+            pub.unsubscribe(position_callback, "meshtastic.receive.position")
         if interface is not None:
             interface.close()
         history.close()
@@ -266,7 +280,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no-friends",
         action="store_true",
-        help="show all mesh nodes (disable friend filtering)",
+        help="disable the optional friend/emoji web server and overrides",
     )
 
     args = parser.parse_args()
