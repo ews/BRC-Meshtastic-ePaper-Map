@@ -58,7 +58,7 @@ def test_screen():
     # Text
     draw.text((cx - 80, cy - 80), "BRC Meshtastic Map", fill=epd.BLACK)
     draw.text((cx - 50, cy + 60), f"{epd.width}x{epd.height}", fill=epd.GREEN)
-    draw.text((cx - 20, cy + 80), "E6 ePaper OK", fill=epd.YELLOW)
+    draw.text((cx - 20, cy + 80), "E6 ePaper OK", fill=epd.RED)
 
     print("Drawing test pattern...")
     epd.display(epd.getbuffer(img))

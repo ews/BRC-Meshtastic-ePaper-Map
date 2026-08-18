@@ -59,6 +59,21 @@ def test_emoji_labels_render_on_list_and_map():
     assert ImageChops.difference(frame, blank).getbbox() is not None
 
 
+def test_emoji_labels_never_use_requested_yellow():
+    burners = {"Alice": _node()}
+    frame = Image.new("RGB", (480, 800), "white")
+
+    draw_node_labels(
+        burners,
+        ImageDraw.Draw(frame),
+        colors=((255, 255, 0),),
+    )
+
+    pixels = set(frame.get_flattened_data())
+    assert (255, 255, 0) not in pixels
+    assert (0, 0, 0) in pixels
+
+
 def test_friend_filter_merges_persistent_emoji():
     class Store:
         def get_friends(self):

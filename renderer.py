@@ -20,6 +20,7 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
+LABEL_COLORS = (BLACK, RED, BLUE, GREEN)
 
 # --- test coordinates from official 2026 GIS data ---
 # Source: innovate-GIS-data/2026/GeoJSON/
@@ -98,7 +99,10 @@ def draw_node_labels(burners, draw, colors=None):
     map_font = ImageFont.truetype("./media/Font.ttc", 18)
     text_start_height = 8 if dense_list else 20
     text_step = 11 if dense_list else 14
-    colors = colors or (RED,)
+    requested_colors = colors or (RED,)
+    colors = tuple(color for color in requested_colors if color in LABEL_COLORS)
+    if not colors:
+        colors = (BLACK,)
     assign_burner_emojis(burners)
 
     for index, name in enumerate(burners):

@@ -70,8 +70,9 @@ PhotoPainter panel:
 - Physical panel buffer: `800 × 480`.
 - Application canvas: `480 × 800` portrait; the driver rotates it for the
   physical panel.
-- Native colors used by the application: black, white, red, blue, green, and
-  yellow.
+- The driver supports black, white, red, blue, green, and yellow. Text and
+  burner icons deliberately use only black, red, blue, and green because
+  yellow has poor contrast on the panel.
 - Driver: `waveshare_epd/epd7in3e.py`.
 
 Do not use `epd7in5_V2.py` for this panel. That is a different display family
@@ -724,7 +725,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 40 tests covering:
+The current suite contains 41 tests covering:
 
 - BRC address behavior and open-playa classification.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
