@@ -1,9 +1,18 @@
-"""E-paper-safe burner emoji catalog and deterministic assignment helpers."""
+"""Unicode burner emoji validation and deterministic assignment helpers."""
 
+import json
+from functools import lru_cache
 from hashlib import sha256
+from pathlib import Path
 
-# Keep this catalog to glyphs covered by media/Font.ttc. The search terms feed
-# the friend manager's searchable picker.
+EMOJI_DATA_PATH = (
+    Path(__file__).resolve().parent
+    / "vendor"
+    / "emoji-picker-element"
+    / "emoji-data.json"
+)
+
+# Keep automatic defaults to high-contrast glyphs covered by media/Font.ttc.
 EMOJI_OPTIONS = (
     ("★", "Star", "star favorite featured"),
     ("☆", "Outline Star", "outline star favorite"),
@@ -36,15 +45,24 @@ def default_emoji(identity: str, used=()) -> str:
 
 
 def validate_emoji(emoji: str) -> str:
-    """Return a supported emoji or raise ValueError."""
-    if emoji not in EMOJIS:
+    """Return a picker/e-paper-supported Unicode emoji or raise ValueError."""
+    if emoji not in supported_emojis():
         raise ValueError(f"Unsupported emoji: {emoji!r}")
     return emoji
 
 
-def emoji_catalog() -> list[dict]:
-    """Return JSON-ready picker metadata."""
-    return [
-        {"symbol": symbol, "name": name, "keywords": keywords}
-        for symbol, name, keywords in EMOJI_OPTIONS
-    ]
+@lru_cache(maxsize=1)
+def supported_emojis() -> frozenset[str]:
+    """Load the self-hosted picker's native Unicode values once."""
+    values = set(EMOJIS)
+    try:
+        records = json.loads(EMOJI_DATA_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return frozenset(values)
+    for record in records:
+        if record.get("emoji"):
+            values.add(record["emoji"])
+        values.update(
+            skin["emoji"] for skin in record.get("skins", ()) if skin.get("emoji")
+        )
+    return frozenset(values)

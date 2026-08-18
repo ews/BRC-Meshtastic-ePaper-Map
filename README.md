@@ -249,15 +249,21 @@ Channel 1 location since `make run-map` started. Each phone-friendly card shows
 the node name, ID, current BRC address, shared time, and effective symbol. Tap
 the large symbol button to open a searchable picker and save an override.
 
-The picker supports searching by glyph, name, or keyword, highlights the
-current selection, uses large touch targets, and becomes a bottom sheet on
-small phone screens. The node list refreshes automatically every 15 seconds.
+The picker uses the accessible `emoji-picker-element` Web Component. It offers
+Unicode emoji search, categories, skin tones, large touch targets, and a
+phone-sized bottom sheet. Its JavaScript and English emoji data are vendored
+under `vendor/emoji-picker-element`, so the Raspberry Pi does not need internet
+access while the map is running. The node list refreshes automatically every
+15 seconds.
 
-The supported glyph catalog contains 15 symbols known to exist in
-`media/Font.ttc`: stars, card suits, music/phone symbols, and chess pieces.
-When no symbol is selected, a deterministic SHA-256-based assignment is made
-from the node ID. Assignments are stable across restarts and distinct while
-unused symbols remain. Duplicate or unsupported selections are rejected.
+Picker selections are stored as native Unicode strings (for example `🚀` or
+`👋🏽`), not image URLs. The e-paper renderer uses the bundled monochrome
+`media/NotoEmoji.ttf`, keeping selected emoji legible and compatible with the
+panel's restricted palette. The original 15 high-contrast symbols remain the
+automatic defaults. When no symbol is selected, a deterministic SHA-256-based
+assignment is made from the node ID. Assignments are stable across restarts
+and distinct while unused symbols remain. Duplicate or non-emoji selections
+are rejected.
 
 `friends.json` is only an optional metadata and emoji-override store. It is
 written when a record is added, edited, removed, or migrated—not when a
@@ -595,7 +601,7 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 | `coordinates.py` | Geodesic distance, BRC address conversion, projection wrapper. |
 | `projection.py` | Forward/inverse anchor-based similarity transform. |
 | `renderer.py` | Fence, markers, symbols, detail list, debug labels, update timestamp. |
-| `burner_emojis.py` | Supported glyph catalog, validation, deterministic assignment. |
+| `burner_emojis.py` | Unicode validation and deterministic default assignment. |
 | `friend_store.py` | Thread-safe, atomic optional metadata/emoji CRUD and migrations. |
 | `friend_server.py` | Embedded emoji-preference UI and REST API on port 8051. |
 | `history_store.py` | Thread-safe SQLite schema, position batches, text-packet storage. |
@@ -648,6 +654,13 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 Invalid/duplicate IDs and emoji conflicts return `409`. Friend writes use a
 temporary file followed by `os.replace` so readers never see partial JSON.
 These records do not filter Channel 1 locations.
+
+The picker is based on
+[`emoji-picker-element`](https://github.com/nolanlawson/emoji-picker-element)
+and its self-hosted Unicode dataset. E-paper glyphs come from Google's
+monochrome [Noto Emoji](https://github.com/googlefonts/noto-emoji), licensed
+under the SIL Open Font License 1.1. License texts are included beside the
+vendored assets.
 
 ### Calibrator (`:8050`)
 
@@ -757,7 +770,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 49 tests covering:
+The current suite contains 51 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.

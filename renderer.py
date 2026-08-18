@@ -10,10 +10,12 @@ from datetime import datetime
 from PIL import ImageFont
 
 import config as c
-from burner_emojis import default_emoji
+from burner_emojis import EMOJIS, default_emoji
 from coordinates import gps_to_burning_man, gps_to_image_coordinates
 
 logging = c.logging
+TEXT_FONT_PATH = "./media/Font.ttc"
+EMOJI_FONT_PATH = "./media/NotoEmoji.ttf"
 
 # Native colors supported by the E6/Spectra 6 panel.
 BLACK = (0, 0, 0)
@@ -98,8 +100,15 @@ def draw_node_labels(burners, draw, colors=None):
     dense_list = len(burners) > 10
     list_scale = 0.96
     base_font_size = 10 if dense_list else 12
-    font = ImageFont.truetype("./media/Font.ttc", base_font_size * list_scale)
-    map_font = ImageFont.truetype("./media/Font.ttc", 18)
+    font = ImageFont.truetype(TEXT_FONT_PATH, base_font_size * list_scale)
+    legacy_emoji_font = ImageFont.truetype(
+        TEXT_FONT_PATH, 11 if dense_list else 13
+    )
+    unicode_emoji_font = ImageFont.truetype(
+        EMOJI_FONT_PATH, 11 if dense_list else 13
+    )
+    legacy_map_font = ImageFont.truetype(TEXT_FONT_PATH, 18)
+    unicode_map_font = ImageFont.truetype(EMOJI_FONT_PATH, 15)
     text_start_height = 8 if dense_list else 20
     text_step = 11 if dense_list else 14
     requested_colors = colors or (RED,)
@@ -112,6 +121,8 @@ def draw_node_labels(burners, draw, colors=None):
         burner = burners[name]
         color = colors[index % len(colors)]
         emoji = burner["emoji"]
+        emoji_font = legacy_emoji_font if emoji in EMOJIS else unicode_emoji_font
+        map_font = legacy_map_font if emoji in EMOJIS else unicode_map_font
         x, y = burner["image_coordinates"]
         draw.ellipse(
             [(x - 10, y - 10), (x + 10, y + 10)],
@@ -121,8 +132,9 @@ def draw_node_labels(burners, draw, colors=None):
         )
         draw.text((x, y), emoji, font=map_font, fill=color, anchor="mm")
 
-        detail = _detail_text(name, burner, emoji)
-        draw.text((10, text_start_height), detail, font=font, fill=color)
+        draw.text((10, text_start_height), emoji, font=emoji_font, fill=color)
+        detail = _detail_text(name, burner)
+        draw.text((27, text_start_height), detail, font=font, fill=color)
         text_start_height += text_step
 
     return draw
@@ -133,7 +145,7 @@ def draw_updated_timestamp(draw, timestamp=None):
     updated_at = (
         datetime.now() if timestamp is None else datetime.fromtimestamp(timestamp)
     )
-    font = ImageFont.truetype("./media/Font.ttc", 10)
+    font = ImageFont.truetype(TEXT_FONT_PATH, 10)
     label = f"updated: {updated_at:%Y-%m-%d %H:%M:%S}"
     draw.text(
         (c.WIDTH - 8, c.HEIGHT - 8),
@@ -147,7 +159,7 @@ def draw_updated_timestamp(draw, timestamp=None):
 
 def draw_test_coordinates(draw, calibrate=False):
     """Draw labeled test points for calibration/debug."""
-    font = ImageFont.truetype("./media/Font.ttc", 12)
+    font = ImageFont.truetype(TEXT_FONT_PATH, 12)
 
     for lat, lon, name in _TEST_COORDS:
         addr = gps_to_burning_man(lat, lon)
@@ -180,9 +192,8 @@ def _time_str(timestamp):
     return datetime.fromtimestamp(timestamp).strftime("%H:%M")
 
 
-def _detail_text(name, burner, emoji):
+def _detail_text(name, burner, emoji=None):
     """Return one compact top-list entry."""
-    return (
-        f"{emoji} {name}: {burner['bm_coordinates']} "
-        f"@ {_time_str(burner['coordinates']['time'])}"
-    )
+    prefix = f"{emoji} " if emoji else ""
+    position_time = _time_str(burner["coordinates"]["time"])
+    return f"{prefix}{name}: {burner['bm_coordinates']} @ {position_time}"

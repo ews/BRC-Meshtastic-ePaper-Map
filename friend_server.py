@@ -11,10 +11,29 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from burner_emojis import default_emoji, emoji_catalog
+from burner_emojis import default_emoji
 from friend_store import FriendStore
 
 ROOT = Path(__file__).resolve().parent
+PICKER_ROOT = ROOT / "vendor" / "emoji-picker-element"
+WEB_ASSETS = {
+    "/assets/emoji-picker-element/index.js": (
+        PICKER_ROOT / "index.js",
+        "text/javascript",
+    ),
+    "/assets/emoji-picker-element/picker.js": (
+        PICKER_ROOT / "picker.js",
+        "text/javascript",
+    ),
+    "/assets/emoji-picker-element/database.js": (
+        PICKER_ROOT / "database.js",
+        "text/javascript",
+    ),
+    "/assets/emoji-picker-element/emoji-data.json": (
+        PICKER_ROOT / "emoji-data.json",
+        "application/json",
+    ),
+}
 
 # ── Embedded single-page web UI ────────────────────────────────
 UI_HTML = r"""<!DOCTYPE html>
@@ -61,25 +80,17 @@ main{width:min(820px,100%);margin:auto;padding:18px 18px calc(30px + env(safe-ar
 .picker-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px}
 .picker-title span{color:var(--muted);font-size:12px}
 .close{width:44px;height:44px;flex:none;border:1px solid var(--line);border-radius:50%;background:var(--card2);color:var(--text);font-size:20px;cursor:pointer}
-.search-wrap{padding:8px 18px 14px}
-#emoji-search{width:100%;height:48px;padding:0 15px;border:1px solid var(--line);border-radius:14px;background:#0b1222;color:var(--text);font-size:16px}
-#emoji-search:focus{border-color:var(--blue);outline:3px solid #60a5fa22}
-.emoji-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;max-height:390px;overflow-y:auto;padding:0 18px 20px}
-.emoji-option{min-height:76px;padding:8px 4px;border:1px solid var(--line);border-radius:15px;background:var(--card2);color:var(--text);cursor:pointer}
-.emoji-option:hover,.emoji-option:focus-visible{border-color:var(--green);outline:none;background:#20304d}
-.emoji-option.selected{border-color:var(--green);box-shadow:0 0 0 3px #34d39922}
-.emoji-symbol{display:block;font-size:29px;line-height:35px}
-.emoji-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px}
-.picker-empty{grid-column:1/-1;padding:30px;text-align:center;color:var(--muted)}
+.emoji-picker-host{display:grid;place-items:center;padding:8px 18px 20px}
+emoji-picker{width:100%;height:min(470px,65vh);--background:#111827;--border-color:#334155;--border-radius:14px;--input-border-color:#64748b;--input-font-color:#f4f7fb;--input-placeholder-color:#94a3b8;--indicator-color:#34d399;--outline-color:#60a5fa;--category-font-color:#e2e8f0;--button-active-background:#334155;--button-hover-background:#263654;--emoji-size:1.55rem;--emoji-padding:.48rem}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));z-index:20;transform:translateX(-50%);max-width:calc(100% - 36px);padding:11px 15px;border-radius:12px;background:#ecfdf5;color:#064e3b;font-weight:700;font-size:13px;box-shadow:0 12px 40px #0007}
 .toast.error{background:#fff1f2;color:#9f1239}
 .toast.hidden{display:none}
 @media(max-width:680px){
   header{padding-left:14px;padding-right:14px}.logo{width:40px;height:40px;border-radius:12px}h1{font-size:18px}.channel-badge{padding:6px 8px}
   main{padding-left:12px;padding-right:12px}.nodes{grid-template-columns:1fr}.node-card{padding:13px}.emoji-button{width:58px;height:58px;border-radius:16px}
-  .modal{align-items:end;padding:0}.picker{width:100%;max-height:88vh;border-radius:24px 24px 0 0;padding-bottom:env(safe-area-inset-bottom)}.emoji-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .modal{align-items:end;padding:0}.picker{width:100%;max-height:92vh;border-radius:24px 24px 0 0;padding-bottom:env(safe-area-inset-bottom)}.emoji-picker-host{padding-left:12px;padding-right:12px}emoji-picker{height:min(520px,72vh);--emoji-size:1.65rem;--emoji-padding:.42rem}
 }
-@media(max-width:370px){.subtitle{display:none}.channel-badge{font-size:10px}.emoji-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:370px){.subtitle{display:none}.channel-badge{font-size:10px}emoji-picker{--emoji-size:1.5rem;--emoji-padding:.35rem}}
 </style>
 </head>
 <body>
@@ -102,13 +113,13 @@ main{width:min(820px,100%);margin:auto;padding:18px 18px calc(30px + env(safe-ar
       <div class="picker-title"><strong id="picker-name">Choose an icon</strong><span id="picker-id"></span></div>
       <button class="close" onclick="closeEmojiPicker()" aria-label="Close">×</button>
     </div>
-    <div class="search-wrap"><input id="emoji-search" type="search" placeholder="Search icons…" autocomplete="off" oninput="renderEmojiPicker()"></div>
-    <div id="emoji-grid" class="emoji-grid"></div>
+    <div class="emoji-picker-host">
+      <emoji-picker class="dark" data-source="/assets/emoji-picker-element/emoji-data.json"></emoji-picker>
+    </div>
   </div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script>
-const EMOJIS = __EMOJI_CATALOG__;
 let nodes = [];
 let pickerNode = null;
 let toastTimer = null;
@@ -160,11 +171,8 @@ function openEmojiPicker(index) {
   pickerNode = nodes[index];
   document.getElementById('picker-name').textContent = pickerNode.name;
   document.getElementById('picker-id').textContent = pickerNode.node_id;
-  document.getElementById('emoji-search').value = '';
   document.getElementById('emoji-modal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
-  renderEmojiPicker();
-  setTimeout(() => document.getElementById('emoji-search').focus(), 60);
 }
 
 function closeEmojiPicker() {
@@ -175,20 +183,6 @@ function closeEmojiPicker() {
 
 function modalBackground(event) {
   if (event.target.id === 'emoji-modal') closeEmojiPicker();
-}
-
-function renderEmojiPicker() {
-  const query = document.getElementById('emoji-search').value.trim().toLowerCase();
-  const matches = EMOJIS.filter(item => !query || `${item.symbol} ${item.name} ${item.keywords}`.toLowerCase().includes(query));
-  const grid = document.getElementById('emoji-grid');
-  if (!matches.length) {
-    grid.innerHTML = '<div class="picker-empty">No matching icons</div>';
-    return;
-  }
-  grid.innerHTML = matches.map(item => `
-    <button class="emoji-option ${pickerNode&&pickerNode.emoji===item.symbol?'selected':''}" onclick="chooseEmoji('${item.symbol}')" aria-label="${esc(item.name)}">
-      <span class="emoji-symbol">${item.symbol}</span><span class="emoji-name">${esc(item.name)}</span>
-    </button>`).join('');
 }
 
 async function chooseEmoji(symbol) {
@@ -226,8 +220,14 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') clos
 refreshNodes();
 setInterval(refreshNodes, 15000);
 </script>
+<script type="module">
+import '/assets/emoji-picker-element/index.js';
+document.querySelector('emoji-picker').addEventListener('emoji-click', event => {
+  chooseEmoji(event.detail.unicode);
+});
+</script>
 </body>
-</html>""".replace("__EMOJI_CATALOG__", json.dumps(emoji_catalog(), ensure_ascii=False))
+</html>"""
 
 
 class FriendServer(threading.Thread):
@@ -259,6 +259,8 @@ def _make_handler(store, node_source):
             path = urlparse(self.path).path
             if path == "/":
                 self._serve_html(UI_HTML)
+            elif path in WEB_ASSETS:
+                self._serve_asset(*WEB_ASSETS[path])
             elif path == "/api/friends":
                 self._serve_json(store.get_friends())
             elif path == "/api/nodes":
@@ -347,6 +349,19 @@ def _make_handler(store, node_source):
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _serve_asset(self, asset_path, content_type):
+            try:
+                body = asset_path.read_bytes()
+            except OSError:
+                self._error(404, "asset not found")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=86400")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

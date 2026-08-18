@@ -29,8 +29,9 @@ def test_selected_emoji_can_be_updated_and_cannot_be_duplicated(tmp_path):
     assert store.update("!aaaa", emoji="★")["emoji"] == "★"
     with pytest.raises(ValueError, match="already assigned"):
         store.update("!bbbb", emoji="★")
+    assert store.update("!bbbb", emoji="🚀")["emoji"] == "🚀"
     with pytest.raises(ValueError, match="Unsupported emoji"):
-        store.update("!bbbb", emoji="🚀")
+        store.update("!bbbb", emoji="not an emoji")
 
 
 def test_legacy_file_is_migrated_with_distinct_emojis(tmp_path):
@@ -55,17 +56,27 @@ def test_legacy_file_is_migrated_with_distinct_emojis(tmp_path):
     assert saved["version"] == 2
 
 
-def test_friend_manager_contains_searchable_emoji_picker():
-    from friend_server import UI_HTML
+def test_friend_manager_contains_self_hosted_unicode_emoji_picker():
+    from friend_server import UI_HTML, WEB_ASSETS
 
     assert "Channel 1 Locations" in UI_HTML
-    assert 'id="emoji-search"' in UI_HTML
-    assert "renderEmojiPicker" in UI_HTML
+    assert '<emoji-picker class="dark"' in UI_HTML
+    assert "emoji-click" in UI_HTML
+    assert "event.detail.unicode" in UI_HTML
+    assert "/assets/emoji-picker-element/index.js" in UI_HTML
+    assert "/assets/emoji-picker-element/emoji-data.json" in UI_HTML
     assert "@media(max-width:680px)" in UI_HTML
     assert "viewport-fit=cover" in UI_HTML
     assert "/api/nodes/" in UI_HTML
-    assert "__EMOJI_CATALOG__" not in UI_HTML
+    assert "renderEmojiPicker" not in UI_HTML
     assert "last_seen" not in UI_HTML
+    assert all(path.is_file() for path, _ in WEB_ASSETS.values())
+
+
+def test_skin_tone_unicode_emoji_is_supported(tmp_path):
+    store = FriendStore(tmp_path / "friends.json")
+
+    assert store.add("!aaaa", "Alice", emoji="👋🏽")["emoji"] == "👋🏽"
 
 
 def test_channel_node_list_contains_only_source_nodes_with_effective_emojis(tmp_path):

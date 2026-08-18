@@ -74,6 +74,20 @@ def test_emoji_labels_render_on_list_and_map():
     assert ImageChops.difference(frame, blank).getbbox() is not None
 
 
+def test_unicode_emoji_labels_render_on_list_and_map():
+    rocket_frame = Image.new("RGB", (480, 800), "white")
+    tent_frame = rocket_frame.copy()
+
+    draw_node_labels(
+        {"Alice": {**_node(), "emoji": "🚀"}}, ImageDraw.Draw(rocket_frame)
+    )
+    draw_node_labels(
+        {"Alice": {**_node(), "emoji": "⛺"}}, ImageDraw.Draw(tent_frame)
+    )
+
+    assert ImageChops.difference(rocket_frame, tent_frame).getbbox() is not None
+
+
 def test_top_list_entry_uses_compact_hour_and_minute_timestamp():
     detail = _detail_text("Alice", _node(), "♥")
 
