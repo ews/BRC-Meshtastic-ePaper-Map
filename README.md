@@ -54,7 +54,7 @@ Key features include:
 - Anchor-based GPS-to-screen calibration.
 - Matching, persistent e-paper-safe symbols in the list and on the map.
 - A searchable emoji picker and friend allowlist web UI.
-- A 15-person GPS-first open-playa mockup.
+- A 15-person GPS-first mockup covering open playa and every street ring.
 - SQLite position and conversation history with CSV exports.
 - Serial connection retry with local TCP fallback and exponential backoff.
 - A native driver for the WaveShare 7.3-inch E6/Spectra 6 display.
@@ -421,11 +421,15 @@ process after changing calibration. The calibration server binds to
 make test-full-mockup
 ```
 
-The mockup creates 15 stable burner identities and symbols. For every frame it
-generates random GPS locations 700–2,300 feet from The Man, projects those GPS
-points with the production transformation, converts them with the production
-BRC-address function, and keeps markers at least 24 pixels apart. The default
-output is `/tmp/brc-full-mockup.png`.
+The mockup creates 15 stable burner identities and symbols. Every frame places
+three burners in open playa and one in each configured ring from Esplanade
+through K. The zone assignments are shuffled between identities on every
+update, and bearings and distances are regenerated, so burners can move across
+the entire city rather than remaining in one ring. All locations begin as GPS
+coordinates, use the production projection and BRC-address conversion, and
+remain at least 24 pixels apart. Street locations are constrained to the
+built 2:00–10:00 city arc; open-playa locations can use the full circle. The
+default output is `/tmp/brc-full-mockup.png`.
 
 Direct options:
 
@@ -445,8 +449,9 @@ make test-full-mockup-epaper
 ```
 
 This refreshes the E6 panel once per minute. Burner numbers and symbols stay
-fixed while their GPS locations move around open playa. The interval is
-start-to-start, so display rendering time is subtracted from the sleep.
+fixed while their GPS locations and city zones change. Each frame still covers
+open playa and all configured street rings. The interval is start-to-start, so
+display rendering time is subtracted from the sleep.
 
 ### E-paper electrical/driver test
 

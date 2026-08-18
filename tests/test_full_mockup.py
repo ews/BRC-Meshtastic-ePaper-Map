@@ -18,10 +18,13 @@ def test_mockup_has_requested_number_of_people_and_brc_addresses():
     assert len(set(emojis)) == len(emojis)
 
 
-def test_default_mockup_has_15_visible_people_on_open_playa():
+def test_default_mockup_covers_open_playa_and_every_street_ring():
     _, burners = build_mockup(seed=7)
 
     assert len(burners) == 15
+    zones = [data["bm_coordinates"].rsplit(" + ", 1)[-1] for data in burners.values()]
+    assert zones.count("Open Playa") == 3
+    assert set(c.STREET_NAMES).issubset(zones)
     for data in burners.values():
         x, y = data["image_coordinates"]
         assert 0 <= x < c.WIDTH
@@ -30,8 +33,10 @@ def test_default_mockup_has_15_visible_people_on_open_playa():
         lon = data["coordinates"]["longitude"]
         radius_ft = distance_ft((c.MAN_LAT, c.MAN_LONG), (lat, lon))
         assert full_mockup.OPEN_PLAYA_MIN_DISTANCE_FT <= radius_ft
-        assert radius_ft <= full_mockup.OPEN_PLAYA_MAX_DISTANCE_FT
+        assert radius_ft <= c.city_radius_ft
         assert (x, y) == gps_to_image_coordinates((lat, lon, "test burner"))
+        if not data["bm_coordinates"].endswith(" + Open Playa"):
+            assert 2 <= full_mockup._clock_value(data["bm_coordinates"]) <= 10
 
 
 def test_location_updates_keep_burner_identity_and_emoji():
@@ -45,6 +50,11 @@ def test_location_updates_keep_burner_identity_and_emoji():
     ]
     assert any(
         first[name]["image_coordinates"] != second[name]["image_coordinates"]
+        for name in first
+    )
+    assert any(
+        first[name]["bm_coordinates"].rsplit(" + ", 1)[-1]
+        != second[name]["bm_coordinates"].rsplit(" + ", 1)[-1]
         for name in first
     )
 

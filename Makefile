@@ -52,7 +52,7 @@ check-venv:
 test: check-venv  ## run in --debug --screen mode (no hardware needed)
 	$(VENV_PYTHON) display_map.py --debug --screen
 
-test-full-mockup: check-venv  ## show map with 15 mock burners on open playa
+test-full-mockup: check-venv  ## show 15 mock burners across open playa and streets
 	$(VENV_PYTHON) tools/full_mockup.py
 
 test-full-mockup-epaper: check-venv  ## refresh moving mock burners every minute

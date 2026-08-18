@@ -24,41 +24,81 @@ DEFAULT_OUTPUT = Path("/tmp/brc-full-mockup.png")
 DEFAULT_PEOPLE = 15
 OPEN_PLAYA_MIN_DISTANCE_FT = 700
 OPEN_PLAYA_MAX_DISTANCE_FT = 2300
+STREET_EDGE_MARGIN_FT = 60
 MIN_MARKER_SEPARATION_PX = 24
 
 
-def _open_playa_locations(rng, count):
-    """Generate random GPS locations and project them onto open playa."""
+def _distance_bands(rng, count):
+    """Choose city zones, covering open playa and every street at 15 people."""
+    open_playa = (
+        "Open Playa",
+        OPEN_PLAYA_MIN_DISTANCE_FT,
+        OPEN_PLAYA_MAX_DISTANCE_FT,
+    )
+    streets = []
+    inner_radius = c.distance_man_esplanade
+    for street, width in zip(c.STREET_NAMES, c.DISTANCE_STREETS):
+        margin = min(STREET_EDGE_MARGIN_FT, width * 0.2)
+        streets.append(
+            (street, inner_radius + margin, inner_radius + width - margin)
+        )
+        inner_radius += width
+
+    if count == 1:
+        bands = [open_playa]
+    elif count < 1 + len(streets):
+        bands = [open_playa, *rng.sample(streets, count - 1)]
+    else:
+        bands = [open_playa, *streets]
+        bands.extend([open_playa] * min(2, count - len(bands)))
+        while len(bands) < count:
+            bands.append(rng.choice([open_playa, *streets]))
+    rng.shuffle(bands)
+    return bands
+
+
+def _clock_value(address):
+    """Return the address clock as a number from 0 through 12."""
+    clock = address.split(" + ", 1)[0]
+    hour, minute = (int(part) for part in clock.split(":"))
+    return (hour % 12) + minute / 60
+
+
+def _city_locations(rng, count):
+    """Generate separated GPS locations across open playa and city streets."""
     center = Point(c.MAN_LAT, c.MAN_LONG)
     locations = []
-    attempts = 0
-    while len(locations) < count and attempts < 5000:
-        attempts += 1
-        bearing = rng.uniform(0, 360)
-        distance_ft = math.sqrt(
-            rng.uniform(
-                OPEN_PLAYA_MIN_DISTANCE_FT**2,
-                OPEN_PLAYA_MAX_DISTANCE_FT**2,
+    for expected_zone, minimum_ft, maximum_ft in _distance_bands(rng, count):
+        for _ in range(1000):
+            bearing = rng.uniform(0, 360)
+            distance_ft = math.sqrt(rng.uniform(minimum_ft**2, maximum_ft**2))
+            gps = geodesic_distance(feet=distance_ft).destination(
+                center, bearing=bearing
             )
-        )
-        gps = geodesic_distance(feet=distance_ft).destination(
-            center, bearing=bearing
-        )
-        lat, lon = gps.latitude, gps.longitude
-        point = gps_to_image_coordinates((lat, lon, "mock burner"))
-        separated = all(
-            math.dist(point, existing[2]) >= MIN_MARKER_SEPARATION_PX
-            for existing in locations
-        )
-        if separated:
-            locations.append((lat, lon, point))
-    if len(locations) != count:
-        raise RuntimeError("Could not place all mock burners without overlap")
+            lat, lon = gps.latitude, gps.longitude
+            address = gps_to_burning_man(lat, lon)
+            if address.rsplit(" + ", 1)[-1] != expected_zone:
+                continue
+            on_built_streets = 2 <= _clock_value(address) <= 10
+            if expected_zone != "Open Playa" and not on_built_streets:
+                continue
+            point = gps_to_image_coordinates((lat, lon, "mock burner"))
+            separated = all(
+                math.dist(point, existing[2]) >= MIN_MARKER_SEPARATION_PX
+                for existing in locations
+            )
+            if separated:
+                locations.append((lat, lon, point))
+                break
+        else:
+            raise RuntimeError(
+                f"Could not place a mock burner in {expected_zone} without overlap"
+            )
     return locations
 
 
 def build_mockup(seed=None, people=DEFAULT_PEOPLE, burner_numbers=None):
-    """Return an RGB map with mock people positioned on open playa."""
+    """Return an RGB map with mock people distributed across BRC."""
     rng = random.Random(seed)
     count = people
     if not 1 <= count <= 20:
@@ -69,7 +109,7 @@ def build_mockup(seed=None, people=DEFAULT_PEOPLE, burner_numbers=None):
     numbers = burner_numbers or rng.sample(range(10, 100), count)
     if len(numbers) != count:
         raise ValueError("burner_numbers must match people")
-    locations = _open_playa_locations(rng, count)
+    locations = _city_locations(rng, count)
 
     for number, (lat, lon, image_coordinates) in zip(numbers, locations):
         name = f"Burner {number}"
