@@ -14,8 +14,8 @@ def test_mockup_has_requested_number_of_people_and_brc_addresses():
     assert len(burners) == 6
     assert len(set(burners)) == 6
     assert all(
-        " + " in data["bm_coordinates"]
-        or " feet from the Man" in data["bm_coordinates"]
+        "+" in data["bm_coordinates"]
+        or " ft from Man" in data["bm_coordinates"]
         or "and Trash Fence" in data["bm_coordinates"]
         for data in burners.values()
     )

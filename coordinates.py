@@ -78,7 +78,7 @@ def distance_to_trash_fence_ft(lat, lon):
 def gps_to_burning_man(lat, lon):
     """Convert GPS coordinates to a Burning Man address string.
 
-    Returns e.g. "09:30 + Esplanade" or "12:00 + Temple" for known POIs.
+    Returns e.g. "09:30+Esplanade" or "12:00+Temple" for known POIs.
     """
 
     _validate_coords(lat, lon)
@@ -108,7 +108,7 @@ def gps_to_burning_man(lat, lon):
     for name, info in c.POINTS_OF_INTEREST.items():
         expected_dist = float(info["distance_from_man_ft"])
         if abs(distance - expected_dist) < c.POI_RADIUS_FT:
-            return info.get("clock", "") + " + " + name
+            return info.get("clock", "") + "+" + name
 
     if distance_to_trash_fence_ft(lat, lon) <= c.trash_fence_proximity_ft:
         return f"{clock} and Trash Fence"
@@ -119,10 +119,10 @@ def gps_to_burning_man(lat, lon):
     if remaining_distance >= 0 and 2 <= clock_value <= 10:
         for index, street_distance in enumerate(c.DISTANCE_STREETS):
             if remaining_distance < street_distance:
-                return f"{clock} + {c.STREET_NAMES[index]}"
+                return f"{clock}+{c.STREET_NAMES[index]}"
             remaining_distance -= street_distance
 
-    return f"{clock}, {distance:.0f} feet from the Man"
+    return f"{clock}, {distance:.0f} ft from Man"
 
 
 def gps_to_image_coordinates(coord):

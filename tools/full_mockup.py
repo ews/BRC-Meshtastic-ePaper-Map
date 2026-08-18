@@ -76,7 +76,7 @@ def _distance_bands(rng, count):
 
 def _clock_value(address):
     """Return the address clock as a number from 0 through 12."""
-    clock = address.split(" + ", 1)[0].split(",", 1)[0].split(" and ", 1)[0]
+    clock = address.split("+", 1)[0].split(",", 1)[0].split(" and ", 1)[0]
     hour, minute = (int(part) for part in clock.split(":"))
     return (hour % 12) + minute / 60
 
@@ -85,12 +85,12 @@ def _address_zone(address):
     """Return the mock zone represented by a production BRC address."""
     if address.endswith("and Trash Fence"):
         return "Trash Fence"
-    if "feet from the Man" in address:
+    if "ft from Man" in address:
         distance_ft = float(address.split(", ", 1)[1].split(" ", 1)[0])
         if distance_ft < c.distance_man_esplanade:
             return "Near Man"
         return "Beyond City"
-    return address.rsplit(" + ", 1)[-1]
+    return address.rsplit("+", 1)[-1]
 
 
 def _inside_trash_fence(point):

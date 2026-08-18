@@ -16,7 +16,7 @@ def _burner(source_time=100):
                 "altitude": 3904,
                 "time": source_time,
             },
-            "bm_coordinates": "12:00 + The Man",
+            "bm_coordinates": "12:00+The Man",
         }
     }
 
@@ -36,8 +36,8 @@ def test_positions_are_persisted_and_duplicate_reports_are_ignored(tmp_path):
             "FROM positions ORDER BY source_time"
         ).fetchall()
     assert rows == [
-        ("!abcd1234", "Alice", 40.783247, -119.207884, "12:00 + The Man"),
-        ("!abcd1234", "Alice", 40.783247, -119.207884, "12:00 + The Man"),
+        ("!abcd1234", "Alice", 40.783247, -119.207884, "12:00+The Man"),
+        ("!abcd1234", "Alice", 40.783247, -119.207884, "12:00+The Man"),
     ]
 
 

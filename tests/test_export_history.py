@@ -18,7 +18,7 @@ def test_position_and_conversation_exports(tmp_path):
                     "longitude": -119.207884,
                     "time": 100,
                 },
-                "bm_coordinates": "12:00 + The Man",
+                "bm_coordinates": "12:00+The Man",
             }
         }
     )
@@ -45,6 +45,6 @@ def test_position_and_conversation_exports(tmp_path):
         conversation_rows = list(csv.DictReader(source))
 
     assert position_rows[0]["name"] == "Alice"
-    assert position_rows[0]["brc_address"] == "12:00 + The Man"
+    assert position_rows[0]["brc_address"] == "12:00+The Man"
     assert conversation_rows[0]["sender_name"] == "Alice"
     assert conversation_rows[0]["text"] == "Meet at the Man"

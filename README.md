@@ -50,7 +50,7 @@ The main process:
 Key features include:
 
 - GPS to clock-and-street, distance, and trash-fence addresses such as
-  `09:30 + B`, `11:15, 4200 feet from the Man`, or
+  `09:30+B`, `11:15, 4200 ft from Man`, or
   `11:30 and Trash Fence`.
 - Anchor-based GPS-to-screen calibration.
 - Matching, persistent e-paper-safe symbols in the list and on the map.
@@ -374,11 +374,11 @@ conversion then:
 6. Walks the configured street-width list to select Esplanade or a lettered
    street inside that built arc.
 7. Labels every other position with clock and distance from the Man, such as
-   `11:15, 4200 feet from the Man`.
+   `11:15, 4200 ft from Man`.
 
-For example, `09:00 + B` means the GPS bearing converts to the 9 o'clock radial
+For example, `09:00+B` means the GPS bearing converts to the 9 o'clock radial
 and the distance falls inside the configured B Street band. A point inside
-Esplanade instead uses its distance, such as `03:13, 1800 feet from the Man`.
+Esplanade instead uses its distance, such as `03:13, 1800 ft from Man`.
 
 ### GPS to screen pixels
 

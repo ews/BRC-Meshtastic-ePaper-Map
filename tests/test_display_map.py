@@ -13,7 +13,7 @@ def _node(lat=40.783247, lon=-119.207884):
         "node_id": "!1234",
         "coordinates": {"latitude": lat, "longitude": lon, "time": 0},
         "image_coordinates": (240, 516),
-        "bm_coordinates": "12:00 + The Man",
+        "bm_coordinates": "12:00+The Man",
     }
 
 
