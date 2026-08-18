@@ -22,29 +22,34 @@ from renderer import BLACK, BLUE, GREEN, RED, draw_node_labels
 MOCK_COLORS = (RED, BLUE, GREEN, BLACK)
 DEFAULT_OUTPUT = Path("/tmp/brc-full-mockup.png")
 DEFAULT_PEOPLE = 15
-OPEN_PLAYA_MIN_DISTANCE_FT = 700
-OPEN_PLAYA_MAX_DISTANCE_FT = 2300
+NEAR_MAN_MIN_DISTANCE_FT = 700
+NEAR_MAN_MAX_DISTANCE_FT = 2300
 STREET_EDGE_MARGIN_FT = 60
-DEEP_PLAYA_MIN_DISTANCE_FT = c.distance_man_esplanade + 250
+BEYOND_CITY_MIN_DISTANCE_FT = c.distance_man_esplanade + 250
 MIN_MARKER_SEPARATION_PX = 24
 
 
 def _distance_bands(rng, count):
-    """Choose zones covering inner playa, streets, and deep playa."""
-    open_playa = (
-        "Open Playa",
-        OPEN_PLAYA_MIN_DISTANCE_FT,
-        OPEN_PLAYA_MAX_DISTANCE_FT,
+    """Choose zones covering non-city areas, streets, and trash fence."""
+    near_man = (
+        "Near Man",
+        NEAR_MAN_MIN_DISTANCE_FT,
+        NEAR_MAN_MAX_DISTANCE_FT,
     )
     fence_apothem_ft = (
         c.svg_city_man_to_trashfence_pixel
         * math.cos(math.radians(36))
         / c.projection.scale_px_per_ft
     )
-    deep_playa = (
-        "Deep Playa",
-        DEEP_PLAYA_MIN_DISTANCE_FT,
-        fence_apothem_ft - 200,
+    beyond_city = (
+        "Beyond City",
+        BEYOND_CITY_MIN_DISTANCE_FT,
+        fence_apothem_ft - c.trash_fence_proximity_ft - 100,
+    )
+    trash_fence = (
+        "Trash Fence",
+        fence_apothem_ft - 500,
+        c.distance_man_to_end_trashfence_ft,
     )
     streets = []
     inner_radius = c.distance_man_esplanade
@@ -55,15 +60,14 @@ def _distance_bands(rng, count):
         )
         inner_radius += width
 
-    all_zones = [open_playa, deep_playa, *streets]
+    all_zones = [near_man, beyond_city, trash_fence, *streets]
     if count == 1:
-        bands = [open_playa]
+        bands = [near_man]
     elif count < len(all_zones):
-        other_zones = rng.sample([deep_playa, *streets], count - 1)
-        bands = [open_playa, *other_zones]
+        other_zones = rng.sample([beyond_city, trash_fence, *streets], count - 1)
+        bands = [near_man, *other_zones]
     else:
         bands = all_zones.copy()
-        bands.extend([deep_playa] * min(1, count - len(bands)))
         while len(bands) < count:
             bands.append(rng.choice(all_zones))
     rng.shuffle(bands)
@@ -72,15 +76,20 @@ def _distance_bands(rng, count):
 
 def _clock_value(address):
     """Return the address clock as a number from 0 through 12."""
-    clock = address.split(" + ", 1)[0].split(",", 1)[0]
+    clock = address.split(" + ", 1)[0].split(",", 1)[0].split(" and ", 1)[0]
     hour, minute = (int(part) for part in clock.split(":"))
     return (hour % 12) + minute / 60
 
 
 def _address_zone(address):
     """Return the mock zone represented by a production BRC address."""
+    if address.endswith("and Trash Fence"):
+        return "Trash Fence"
     if "feet from the Man" in address:
-        return "Deep Playa"
+        distance_ft = float(address.split(", ", 1)[1].split(" ", 1)[0])
+        if distance_ft < c.distance_man_esplanade:
+            return "Near Man"
+        return "Beyond City"
     return address.rsplit(" + ", 1)[-1]
 
 
@@ -109,7 +118,7 @@ def _inside_trash_fence(point):
 
 
 def _city_locations(rng, count):
-    """Generate separated GPS locations across open playa and city streets."""
+    """Generate separated GPS locations across non-city areas and streets."""
     center = Point(c.MAN_LAT, c.MAN_LONG)
     locations = []
     for expected_zone, minimum_ft, maximum_ft in _distance_bands(rng, count):
@@ -126,7 +135,7 @@ def _city_locations(rng, count):
             clock_value = _clock_value(address)
             if expected_zone in c.STREET_NAMES and not 2 <= clock_value <= 10:
                 continue
-            if expected_zone == "Deep Playa" and 2 <= clock_value <= 10:
+            if expected_zone == "Beyond City" and 2 <= clock_value <= 10:
                 continue
             point = gps_to_image_coordinates((lat, lon, "mock burner"))
             if not _inside_trash_fence(point):

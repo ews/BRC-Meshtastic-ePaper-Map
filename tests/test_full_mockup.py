@@ -16,13 +16,14 @@ def test_mockup_has_requested_number_of_people_and_brc_addresses():
     assert all(
         " + " in data["bm_coordinates"]
         or " feet from the Man" in data["bm_coordinates"]
+        or "and Trash Fence" in data["bm_coordinates"]
         for data in burners.values()
     )
     emojis = [data["emoji"] for data in burners.values()]
     assert len(set(emojis)) == len(emojis)
 
 
-def test_default_mockup_covers_open_playa_and_every_street_ring():
+def test_default_mockup_covers_non_city_areas_and_every_street_ring():
     _, burners = build_mockup(seed=7)
 
     assert len(burners) == 15
@@ -30,8 +31,9 @@ def test_default_mockup_covers_open_playa_and_every_street_ring():
         full_mockup._address_zone(data["bm_coordinates"])
         for data in burners.values()
     ]
-    assert zones.count("Open Playa") == 1
-    assert zones.count("Deep Playa") == 2
+    assert zones.count("Near Man") == 1
+    assert zones.count("Beyond City") == 1
+    assert zones.count("Trash Fence") == 1
     assert set(c.STREET_NAMES).issubset(zones)
     for data in burners.values():
         x, y = data["image_coordinates"]
@@ -40,16 +42,18 @@ def test_default_mockup_covers_open_playa_and_every_street_ring():
         lat = data["coordinates"]["latitude"]
         lon = data["coordinates"]["longitude"]
         radius_ft = distance_ft((c.MAN_LAT, c.MAN_LONG), (lat, lon))
-        assert full_mockup.OPEN_PLAYA_MIN_DISTANCE_FT <= radius_ft
+        assert full_mockup.NEAR_MAN_MIN_DISTANCE_FT <= radius_ft
         assert radius_ft <= c.distance_man_to_end_trashfence_ft
         assert (x, y) == gps_to_image_coordinates((lat, lon, "test burner"))
         assert full_mockup._inside_trash_fence((x, y))
         zone = full_mockup._address_zone(data["bm_coordinates"])
         if zone in c.STREET_NAMES:
             assert 2 <= full_mockup._clock_value(data["bm_coordinates"]) <= 10
-        elif zone == "Deep Playa":
-            assert radius_ft >= full_mockup.DEEP_PLAYA_MIN_DISTANCE_FT
+        elif zone == "Beyond City":
+            assert radius_ft >= full_mockup.BEYOND_CITY_MIN_DISTANCE_FT
             assert not 2 <= full_mockup._clock_value(data["bm_coordinates"]) <= 10
+        elif zone == "Trash Fence":
+            assert data["bm_coordinates"].endswith("and Trash Fence")
 
 
 def test_location_updates_keep_burner_identity_and_emoji():

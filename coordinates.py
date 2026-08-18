@@ -41,6 +41,40 @@ def _validate_coords(lat, lon):
         logging.warning("longitude %.6f is far from BRC center (%.6f)", lon, c.MAN_LONG)
 
 
+def _point_to_segment_distance(point, start, end):
+    """Return the Euclidean distance from a point to a line segment."""
+    px, py = point
+    x1, y1 = start
+    x2, y2 = end
+    dx = x2 - x1
+    dy = y2 - y1
+    if dx == 0 and dy == 0:
+        return math.hypot(px - x1, py - y1)
+    fraction = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+    fraction = max(0.0, min(1.0, fraction))
+    closest = (x1 + fraction * dx, y1 + fraction * dy)
+    return math.hypot(px - closest[0], py - closest[1])
+
+
+def distance_to_trash_fence_ft(lat, lon):
+    """Return distance in feet to the displayed trash-fence pentagon."""
+    cx, cy = c.man_svg
+    radius = c.svg_city_man_to_trashfence_pixel
+    vertices = []
+    for index in range(5):
+        angle = math.radians(90 - index * 72)
+        vertices.append(
+            (cx + radius * math.cos(angle), cy - radius * math.sin(angle))
+        )
+
+    point = c.projection.gps_to_pixel(lat, lon)
+    distance_px = min(
+        _point_to_segment_distance(point, vertices[index - 1], vertices[index])
+        for index in range(5)
+    )
+    return distance_px / c.projection.scale_px_per_ft
+
+
 def gps_to_burning_man(lat, lon):
     """Convert GPS coordinates to a Burning Man address string.
 
@@ -50,12 +84,6 @@ def gps_to_burning_man(lat, lon):
     _validate_coords(lat, lon)
 
     distance = GD((c.MAN_LAT, c.MAN_LONG), (lat, lon)).feet
-
-    # Check known POIs first
-    for name, info in c.POINTS_OF_INTEREST.items():
-        expected_dist = float(info["distance_from_man_ft"])
-        if abs(distance - expected_dist) < c.POI_RADIUS_FT:
-            return info.get("clock", "") + " + " + name
 
     angle_deg = _bearing_deg(c.MAN_LAT, c.MAN_LONG, lat, lon)
     angle_rad = math.radians(angle_deg)
@@ -72,31 +100,29 @@ def gps_to_burning_man(lat, lon):
     if clock_hour == 0:
         clock_hour = 12
 
-    # Convert distance to a street name only within the built 2:00–10:00 arc.
-    remaining_distance = distance - c.distance_man_esplanade
-    clock_value = (clock_hour % 12) + clock_minutes / 60
-
-    if remaining_distance < 0:
-        street_name = "Open Playa"
-        separator = " + "
-    elif not 2 <= clock_value <= 10:
-        street_name = f"{distance:.0f} feet from the Man"
-        separator = ", "
-    else:
-        for i, street_distance in enumerate(c.DISTANCE_STREETS):
-            if remaining_distance < street_distance:
-                street_name = c.STREET_NAMES[i]
-                break
-            remaining_distance -= street_distance
-        else:
-            street_name = f"{distance:.0f} feet from the Man"
-        separator = " + " if street_name in c.STREET_NAMES else ", "
-
-    # Format time string
     str_clock_hour = f"{clock_hour:02d}"
     str_clock_minutes = f"{clock_minutes:02d}"
+    clock = f"{str_clock_hour}:{str_clock_minutes}"
 
-    return f"{str_clock_hour}:{str_clock_minutes}{separator}{street_name}"
+    # Check known POIs before applying general location labels.
+    for name, info in c.POINTS_OF_INTEREST.items():
+        expected_dist = float(info["distance_from_man_ft"])
+        if abs(distance - expected_dist) < c.POI_RADIUS_FT:
+            return info.get("clock", "") + " + " + name
+
+    if distance_to_trash_fence_ft(lat, lon) <= c.trash_fence_proximity_ft:
+        return f"{clock} and Trash Fence"
+
+    # Street names apply only to the built 2:00–10:00 city rings.
+    remaining_distance = distance - c.distance_man_esplanade
+    clock_value = (clock_hour % 12) + clock_minutes / 60
+    if remaining_distance >= 0 and 2 <= clock_value <= 10:
+        for index, street_distance in enumerate(c.DISTANCE_STREETS):
+            if remaining_distance < street_distance:
+                return f"{clock} + {c.STREET_NAMES[index]}"
+            remaining_distance -= street_distance
+
+    return f"{clock}, {distance:.0f} feet from the Man"
 
 
 def gps_to_image_coordinates(coord):

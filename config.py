@@ -73,6 +73,7 @@ POI_RADIUS_FT = int(_cfg.get("poi_radius_ft", 50))
 
 # --- Trash fence (for debug pentagon drawing) ---
 distance_man_to_end_trashfence_ft = float(_cfg["distance_man_to_trashfence_ft"])
+trash_fence_proximity_ft = float(_cfg.get("trash_fence_proximity_ft", 200))
 _trash_px = _cfg.get("trash_fence_radius_px")
 if _trash_px is not None:
     svg_city_man_to_trashfence_pixel = float(_trash_px)

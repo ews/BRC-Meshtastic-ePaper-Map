@@ -49,13 +49,14 @@ The main process:
 
 Key features include:
 
-- GPS to clock-and-street addresses such as `09:30 + B` or
-  `03:13 + Open Playa`.
+- GPS to clock-and-street, distance, and trash-fence addresses such as
+  `09:30 + B`, `11:15, 4200 feet from the Man`, or
+  `11:30 and Trash Fence`.
 - Anchor-based GPS-to-screen calibration.
 - Matching, persistent e-paper-safe symbols in the list and on the map.
 - A searchable emoji picker and friend allowlist web UI.
-- A 15-person GPS-first mockup covering inner playa, every street ring, and
-  deep playa beyond Temple.
+- A 15-person GPS-first mockup covering the area near the Man, every street
+  ring, the non-city area beyond Temple, and the trash fence.
 - SQLite position and conversation history with CSV exports.
 - Serial connection retry with local TCP fallback and exponential backoff.
 - A native driver for the WaveShare 7.3-inch E6/Spectra 6 display.
@@ -299,7 +300,7 @@ History is collected before friend filtering:
 | `name` | Meshtastic long name at the time of storage. |
 | `latitude`, `longitude` | GPS position. |
 | `altitude` | Reported altitude, if present. |
-| `brc_address` | Converted clock-and-street/open-playa address. |
+| `brc_address` | Converted street, distance-from-Man, POI, or trash-fence address. |
 
 `messages`:
 
@@ -366,17 +367,18 @@ conversion then:
 2. Checks configured points of interest by their expected radial distance;
    matches within `poi_radius_ft` return the POI label.
 3. Rotates geographic bearing by `brc_noon` to obtain the BRC clock direction.
-4. Labels distances inside `distance_man_esplanade` as `Open Playa`.
-5. Uses street names only within the built 2:00–10:00 city arc.
-6. Labels points beyond Esplanade on the 10:00–2:00 deep-playa side as clock
-   plus distance, such as `11:15, 4200 feet from the Man`.
-7. Walks the configured street-width list to select Esplanade or a lettered
-   street inside the built arc.
-8. Uses clock plus distance after the configured street rings end.
+4. Labels a point within `trash_fence_proximity_ft` of the pentagon edge as
+   clock plus `Trash Fence`, such as `11:30 and Trash Fence`.
+5. Uses street names only within the built 2:00–10:00 city arc and between
+   Esplanade and the end of the configured street rings.
+6. Walks the configured street-width list to select Esplanade or a lettered
+   street inside that built arc.
+7. Labels every other position with clock and distance from the Man, such as
+   `11:15, 4200 feet from the Man`.
 
 For example, `09:00 + B` means the GPS bearing converts to the 9 o'clock radial
-and the distance falls inside the configured B Street band. `03:13 + Open
-Playa` means the bearing is around 3:13 and the point is inside Esplanade.
+and the distance falls inside the configured B Street band. A point inside
+Esplanade instead uses its distance, such as `03:13, 1800 feet from the Man`.
 
 ### GPS to screen pixels
 
@@ -427,15 +429,16 @@ make test-full-mockup
 ```
 
 The mockup creates 15 stable burner identities and symbols. Every frame places
-one burner in inner open playa, one in each configured ring from Esplanade
-through K, and two in deep playa beyond Temple. The zone assignments are
+one burner near the Man, one in each configured ring from Esplanade through K,
+one beyond the city, and one near the trash fence. The zone assignments are
 shuffled between identities on every update, and bearings and distances are
 regenerated, so burners can move across the entire city rather than remaining
 in one ring. All locations begin as GPS coordinates, use the production
 projection and BRC-address conversion, remain at least 24 pixels apart, and
 are rejected if their projected marker falls outside the trash-fence pentagon.
-Street locations are constrained to the built 2:00–10:00 city arc. Deep-playa
-locations use the 10:00–2:00 side and display clock plus distance from the Man.
+Street locations are constrained to the built 2:00–10:00 city arc. Other
+non-city locations display clock plus distance from the Man, while locations
+within 200 feet of the pentagon display `HH:MM and Trash Fence`.
 The default output is `/tmp/brc-full-mockup.png`.
 
 Direct options:
@@ -457,8 +460,9 @@ make test-full-mockup-epaper
 
 This refreshes the E6 panel once per minute. Burner numbers and symbols stay
 fixed while their GPS locations and city zones change. Each frame still covers
-open playa and all configured street rings. The interval is start-to-start, so
-display rendering time is subtracted from the sleep.
+the area near the Man, beyond-city and trash-fence locations, and all configured
+street rings. The interval is start-to-start, so display rendering time is
+subtracted from the sleep.
 
 ### E-paper electrical/driver test
 
@@ -494,7 +498,7 @@ Edit `config.yaml`; `config.py` is the loader and derived-value module.
 | `anchors` | Man and Temple | GPS-to-screen calibration tuples. |
 | `feet_per_degree` | `364000` | Local latitude conversion used by the projection. |
 | `brc.man_lat`, `brc.man_long` | 2026 Man GPS | Origin for address calculations. |
-| `brc.distance_man_esplanade` | `2500` ft | Radius inside which points are Open Playa. |
+| `brc.distance_man_esplanade` | `2500` ft | Inner boundary of the built city street rings. |
 | `brc.distance_streets` | 12 widths | Radial widths for Esplanade and lettered streets. |
 | `brc.street_last_letter` | `K` | Final generated street name. |
 | `brc.brc_noon` | `1.5` hours | Rotation from geographic bearing to BRC clock. |
@@ -505,6 +509,7 @@ Edit `config.yaml`; `config.py` is the loader and derived-value module.
 | `points_of_interest` | Temple, Center Camp, The Man | Radial-distance address overrides. |
 | `poi_radius_ft` | `50` ft | Tolerance for a POI override. |
 | `distance_man_to_trashfence_ft` | `8479` ft | Physical fence radius used for derived geometry. |
+| `trash_fence_proximity_ft` | `200` ft | Distance from the pentagon edge that triggers a Trash Fence address. |
 | `trash_fence_radius_px` | `332` px | Displayed dotted-fence radius. |
 
 Two optional advanced keys are accepted even though they are absent from the
@@ -725,9 +730,9 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 41 tests covering:
+The current suite contains 42 tests covering:
 
-- BRC address behavior and open-playa classification.
+- BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
 - Refresh decisions, frame dimensions, symbols, timestamps, and startup order.
 - E6 palette packing, portrait rotation, validation, and SPI transfer.

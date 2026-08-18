@@ -77,5 +77,7 @@ poi_radius_ft: 50
 # --- Trash Fence (for debug pentagon drawing, screen pixels from Man) ---
 # Distance from Man to trash fence (feet)
 distance_man_to_trashfence_ft: 8479
+# Locations within this distance of the pentagon are labeled Trash Fence
+trash_fence_proximity_ft: 200
 # Pixel radius of the trash fence pentagon (will be auto-computed if not set)
 trash_fence_radius_px: 332
