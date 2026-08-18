@@ -72,11 +72,16 @@ def gps_to_burning_man(lat, lon):
     if clock_hour == 0:
         clock_hour = 12
 
-    # Convert distance to street name
+    # Convert distance to a street name only within the built 2:00–10:00 arc.
     remaining_distance = distance - c.distance_man_esplanade
+    clock_value = (clock_hour % 12) + clock_minutes / 60
 
     if remaining_distance < 0:
         street_name = "Open Playa"
+        separator = " + "
+    elif not 2 <= clock_value <= 10:
+        street_name = f"{distance:.0f} feet from the Man"
+        separator = ", "
     else:
         for i, street_distance in enumerate(c.DISTANCE_STREETS):
             if remaining_distance < street_distance:
@@ -84,13 +89,14 @@ def gps_to_burning_man(lat, lon):
                 break
             remaining_distance -= street_distance
         else:
-            street_name = f"{distance:.0f}ft"
+            street_name = f"{distance:.0f} feet from the Man"
+        separator = " + " if street_name in c.STREET_NAMES else ", "
 
     # Format time string
     str_clock_hour = f"{clock_hour:02d}"
     str_clock_minutes = f"{clock_minutes:02d}"
 
-    return f"{str_clock_hour}:{str_clock_minutes} + {street_name}"
+    return f"{str_clock_hour}:{str_clock_minutes}{separator}{street_name}"
 
 
 def gps_to_image_coordinates(coord):

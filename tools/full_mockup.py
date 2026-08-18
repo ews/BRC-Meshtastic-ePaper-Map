@@ -25,15 +25,26 @@ DEFAULT_PEOPLE = 15
 OPEN_PLAYA_MIN_DISTANCE_FT = 700
 OPEN_PLAYA_MAX_DISTANCE_FT = 2300
 STREET_EDGE_MARGIN_FT = 60
+DEEP_PLAYA_MIN_DISTANCE_FT = c.distance_man_esplanade + 250
 MIN_MARKER_SEPARATION_PX = 24
 
 
 def _distance_bands(rng, count):
-    """Choose city zones, covering open playa and every street at 15 people."""
+    """Choose zones covering inner playa, streets, and deep playa."""
     open_playa = (
         "Open Playa",
         OPEN_PLAYA_MIN_DISTANCE_FT,
         OPEN_PLAYA_MAX_DISTANCE_FT,
+    )
+    fence_apothem_ft = (
+        c.svg_city_man_to_trashfence_pixel
+        * math.cos(math.radians(36))
+        / c.projection.scale_px_per_ft
+    )
+    deep_playa = (
+        "Deep Playa",
+        DEEP_PLAYA_MIN_DISTANCE_FT,
+        fence_apothem_ft - 200,
     )
     streets = []
     inner_radius = c.distance_man_esplanade
@@ -44,24 +55,57 @@ def _distance_bands(rng, count):
         )
         inner_radius += width
 
+    all_zones = [open_playa, deep_playa, *streets]
     if count == 1:
         bands = [open_playa]
-    elif count < 1 + len(streets):
-        bands = [open_playa, *rng.sample(streets, count - 1)]
+    elif count < len(all_zones):
+        other_zones = rng.sample([deep_playa, *streets], count - 1)
+        bands = [open_playa, *other_zones]
     else:
-        bands = [open_playa, *streets]
-        bands.extend([open_playa] * min(2, count - len(bands)))
+        bands = all_zones.copy()
+        bands.extend([deep_playa] * min(1, count - len(bands)))
         while len(bands) < count:
-            bands.append(rng.choice([open_playa, *streets]))
+            bands.append(rng.choice(all_zones))
     rng.shuffle(bands)
     return bands
 
 
 def _clock_value(address):
     """Return the address clock as a number from 0 through 12."""
-    clock = address.split(" + ", 1)[0]
+    clock = address.split(" + ", 1)[0].split(",", 1)[0]
     hour, minute = (int(part) for part in clock.split(":"))
     return (hour % 12) + minute / 60
+
+
+def _address_zone(address):
+    """Return the mock zone represented by a production BRC address."""
+    if "feet from the Man" in address:
+        return "Deep Playa"
+    return address.rsplit(" + ", 1)[-1]
+
+
+def _inside_trash_fence(point):
+    """Return whether a projected point is inside the displayed pentagon."""
+    cx, cy = c.man_svg
+    radius = c.svg_city_man_to_trashfence_pixel
+    vertices = []
+    for index in range(5):
+        angle = math.radians(90 - index * 72)
+        vertices.append(
+            (cx + radius * math.cos(angle), cy - radius * math.sin(angle))
+        )
+
+    x, y = point
+    inside = False
+    previous = vertices[-1]
+    for current in vertices:
+        x1, y1 = previous
+        x2, y2 = current
+        crosses = (y1 > y) != (y2 > y)
+        if crosses and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            inside = not inside
+        previous = current
+    return inside
 
 
 def _city_locations(rng, count):
@@ -77,12 +121,16 @@ def _city_locations(rng, count):
             )
             lat, lon = gps.latitude, gps.longitude
             address = gps_to_burning_man(lat, lon)
-            if address.rsplit(" + ", 1)[-1] != expected_zone:
+            if _address_zone(address) != expected_zone:
                 continue
-            on_built_streets = 2 <= _clock_value(address) <= 10
-            if expected_zone != "Open Playa" and not on_built_streets:
+            clock_value = _clock_value(address)
+            if expected_zone in c.STREET_NAMES and not 2 <= clock_value <= 10:
+                continue
+            if expected_zone == "Deep Playa" and 2 <= clock_value <= 10:
                 continue
             point = gps_to_image_coordinates((lat, lon, "mock burner"))
+            if not _inside_trash_fence(point):
+                continue
             separated = all(
                 math.dist(point, existing[2]) >= MIN_MARKER_SEPARATION_PX
                 for existing in locations

@@ -54,7 +54,8 @@ Key features include:
 - Anchor-based GPS-to-screen calibration.
 - Matching, persistent e-paper-safe symbols in the list and on the map.
 - A searchable emoji picker and friend allowlist web UI.
-- A 15-person GPS-first mockup covering open playa and every street ring.
+- A 15-person GPS-first mockup covering inner playa, every street ring, and
+  deep playa beyond Temple.
 - SQLite position and conversation history with CSV exports.
 - Serial connection retry with local TCP fallback and exponential backoff.
 - A native driver for the WaveShare 7.3-inch E6/Spectra 6 display.
@@ -365,9 +366,12 @@ conversion then:
    matches within `poi_radius_ft` return the POI label.
 3. Rotates geographic bearing by `brc_noon` to obtain the BRC clock direction.
 4. Labels distances inside `distance_man_esplanade` as `Open Playa`.
-5. Walks the configured street-width list to select Esplanade or a lettered
-   street.
-6. Uses a raw distance such as `6840ft` after the configured street rings end.
+5. Uses street names only within the built 2:00–10:00 city arc.
+6. Labels points beyond Esplanade on the 10:00–2:00 deep-playa side as clock
+   plus distance, such as `11:15, 4200 feet from the Man`.
+7. Walks the configured street-width list to select Esplanade or a lettered
+   street inside the built arc.
+8. Uses clock plus distance after the configured street rings end.
 
 For example, `09:00 + B` means the GPS bearing converts to the 9 o'clock radial
 and the distance falls inside the configured B Street band. `03:13 + Open
@@ -422,14 +426,16 @@ make test-full-mockup
 ```
 
 The mockup creates 15 stable burner identities and symbols. Every frame places
-three burners in open playa and one in each configured ring from Esplanade
-through K. The zone assignments are shuffled between identities on every
-update, and bearings and distances are regenerated, so burners can move across
-the entire city rather than remaining in one ring. All locations begin as GPS
-coordinates, use the production projection and BRC-address conversion, and
-remain at least 24 pixels apart. Street locations are constrained to the
-built 2:00–10:00 city arc; open-playa locations can use the full circle. The
-default output is `/tmp/brc-full-mockup.png`.
+one burner in inner open playa, one in each configured ring from Esplanade
+through K, and two in deep playa beyond Temple. The zone assignments are
+shuffled between identities on every update, and bearings and distances are
+regenerated, so burners can move across the entire city rather than remaining
+in one ring. All locations begin as GPS coordinates, use the production
+projection and BRC-address conversion, remain at least 24 pixels apart, and
+are rejected if their projected marker falls outside the trash-fence pentagon.
+Street locations are constrained to the built 2:00–10:00 city arc. Deep-playa
+locations use the 10:00–2:00 side and display clock plus distance from the Man.
+The default output is `/tmp/brc-full-mockup.png`.
 
 Direct options:
 
@@ -718,7 +724,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 38 tests covering:
+The current suite contains 40 tests covering:
 
 - BRC address behavior and open-playa classification.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
