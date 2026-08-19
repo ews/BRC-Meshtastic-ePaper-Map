@@ -8,7 +8,7 @@ from pathlib import Path
 EMOJI_DATA_PATH = (
     Path(__file__).resolve().parent
     / "vendor"
-    / "emoji-picker-element"
+    / "emoji-mart"
     / "emoji-data.json"
 )
 
@@ -59,10 +59,10 @@ def supported_emojis() -> frozenset[str]:
         records = json.loads(EMOJI_DATA_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return frozenset(values)
-    for record in records:
-        if record.get("emoji"):
-            values.add(record["emoji"])
+    for record in records.get("emojis", {}).values():
         values.update(
-            skin["emoji"] for skin in record.get("skins", ()) if skin.get("emoji")
+            skin["native"]
+            for skin in record.get("skins", ())
+            if skin.get("native")
         )
     return frozenset(values)

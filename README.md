@@ -249,10 +249,10 @@ Channel 1 location since `make run-map` started. Each phone-friendly card shows
 the node name, ID, current BRC address, shared time, and effective symbol. Tap
 the large symbol button to open a searchable picker and save an override.
 
-The picker uses the accessible `emoji-picker-element` Web Component. It offers
+The picker uses the `Emoji Mart` Web Component. It offers
 Unicode emoji search, categories, skin tones, large touch targets, and a
 phone-sized bottom sheet. Its JavaScript and English emoji data are vendored
-under `vendor/emoji-picker-element`, so the Raspberry Pi does not need internet
+under `vendor/emoji-mart`, so the Raspberry Pi does not need internet
 access while the map is running. The node list refreshes automatically every
 15 seconds.
 
@@ -655,17 +655,17 @@ Invalid/duplicate IDs and emoji conflicts return `409`. Friend writes use a
 temporary file followed by `os.replace` so readers never see partial JSON.
 These records do not filter Channel 1 locations.
 
-The picker is based on
-[`emoji-picker-element`](https://github.com/nolanlawson/emoji-picker-element)
-and its self-hosted Unicode dataset. E-paper glyphs come from Google's
+The picker is based on [Emoji Mart](https://github.com/missive/emoji-mart) and
+its self-hosted Unicode dataset. It does not require IndexedDB, so it also works
+in mobile privacy modes where persistent browser databases are unavailable.
+E-paper glyphs come from Google's
 monochrome [Noto Emoji](https://github.com/googlefonts/noto-emoji), licensed
 under the SIL Open Font License 1.1. License texts are included beside the
 vendored assets.
 
 Static picker assets provide stable `ETag` headers and support `HEAD` requests.
-This lets the picker cache its Unicode database when the page is opened over
-plain HTTP on a Raspberry Pi LAN address, without requiring browser Web Crypto
-or an internet connection.
+The picker works over plain HTTP on a Raspberry Pi LAN address without browser
+Web Crypto, IndexedDB, or an internet connection.
 
 ### Calibrator (`:8050`)
 

@@ -16,21 +16,13 @@ from burner_emojis import default_emoji
 from friend_store import FriendStore
 
 ROOT = Path(__file__).resolve().parent
-PICKER_ROOT = ROOT / "vendor" / "emoji-picker-element"
+PICKER_ROOT = ROOT / "vendor" / "emoji-mart"
 WEB_ASSETS = {
-    "/assets/emoji-picker-element/index.js": (
-        PICKER_ROOT / "index.js",
+    "/assets/emoji-mart/browser.js": (
+        PICKER_ROOT / "browser.js",
         "text/javascript",
     ),
-    "/assets/emoji-picker-element/picker.js": (
-        PICKER_ROOT / "picker.js",
-        "text/javascript",
-    ),
-    "/assets/emoji-picker-element/database.js": (
-        PICKER_ROOT / "database.js",
-        "text/javascript",
-    ),
-    "/assets/emoji-picker-element/emoji-data.json": (
+    "/assets/emoji-mart/emoji-data.json": (
         PICKER_ROOT / "emoji-data.json",
         "application/json",
     ),
@@ -81,17 +73,17 @@ main{width:min(820px,100%);margin:auto;padding:18px 18px calc(30px + env(safe-ar
 .picker-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px}
 .picker-title span{color:var(--muted);font-size:12px}
 .close{width:44px;height:44px;flex:none;border:1px solid var(--line);border-radius:50%;background:var(--card2);color:var(--text);font-size:20px;cursor:pointer}
-.emoji-picker-host{display:grid;place-items:center;padding:8px 18px 20px}
-emoji-picker{width:100%;height:min(470px,65vh);--background:#111827;--border-color:#334155;--border-radius:14px;--input-border-color:#64748b;--input-font-color:#f4f7fb;--input-placeholder-color:#94a3b8;--indicator-color:#34d399;--outline-color:#60a5fa;--category-font-color:#e2e8f0;--button-active-background:#334155;--button-hover-background:#263654;--emoji-size:1.55rem;--emoji-padding:.48rem}
+.emoji-picker-host{display:grid;place-items:center;min-height:min(420px,65vh);padding:8px 18px 20px;color:var(--muted)}
+em-emoji-picker{width:100%;height:min(470px,65vh);--rgb-background:17,24,39;--rgb-input:11,18,34;--rgb-color:244,247,251;--rgb-accent:52,211,153;--color-border:#334155;--color-border-over:#64748b}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));z-index:20;transform:translateX(-50%);max-width:calc(100% - 36px);padding:11px 15px;border-radius:12px;background:#ecfdf5;color:#064e3b;font-weight:700;font-size:13px;box-shadow:0 12px 40px #0007}
 .toast.error{background:#fff1f2;color:#9f1239}
 .toast.hidden{display:none}
 @media(max-width:680px){
   header{padding-left:14px;padding-right:14px}.logo{width:40px;height:40px;border-radius:12px}h1{font-size:18px}.channel-badge{padding:6px 8px}
   main{padding-left:12px;padding-right:12px}.nodes{grid-template-columns:1fr}.node-card{padding:13px}.emoji-button{width:58px;height:58px;border-radius:16px}
-  .modal{align-items:end;padding:0}.picker{width:100%;max-height:92vh;border-radius:24px 24px 0 0;padding-bottom:env(safe-area-inset-bottom)}.emoji-picker-host{padding-left:12px;padding-right:12px}emoji-picker{height:min(520px,72vh);--emoji-size:1.65rem;--emoji-padding:.42rem}
+  .modal{align-items:end;padding:0}.picker{width:100%;max-height:92vh;border-radius:24px 24px 0 0;padding-bottom:env(safe-area-inset-bottom)}.emoji-picker-host{min-height:min(500px,72vh);padding-left:12px;padding-right:12px}em-emoji-picker{height:min(520px,72vh)}
 }
-@media(max-width:370px){.subtitle{display:none}.channel-badge{font-size:10px}emoji-picker{--emoji-size:1.5rem;--emoji-padding:.35rem}}
+@media(max-width:370px){.subtitle{display:none}.channel-badge{font-size:10px}}
 </style>
 </head>
 <body>
@@ -114,8 +106,8 @@ emoji-picker{width:100%;height:min(470px,65vh);--background:#111827;--border-col
       <div class="picker-title"><strong id="picker-name">Choose an icon</strong><span id="picker-id"></span></div>
       <button class="close" onclick="closeEmojiPicker()" aria-label="Close">×</button>
     </div>
-    <div class="emoji-picker-host">
-      <emoji-picker class="dark" data-source="/assets/emoji-picker-element/emoji-data.json"></emoji-picker>
+    <div id="emoji-picker-host" class="emoji-picker-host">
+      <span>Loading emoji…</span>
     </div>
   </div>
 </div>
@@ -174,6 +166,7 @@ function openEmojiPicker(index) {
   document.getElementById('picker-id').textContent = pickerNode.node_id;
   document.getElementById('emoji-modal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+  initEmojiPicker();
 }
 
 function closeEmojiPicker() {
@@ -221,11 +214,41 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') clos
 refreshNodes();
 setInterval(refreshNodes, 15000);
 </script>
-<script type="module">
-import '/assets/emoji-picker-element/index.js';
-document.querySelector('emoji-picker').addEventListener('emoji-click', event => {
-  chooseEmoji(event.detail.unicode);
-});
+<script src="/assets/emoji-mart/browser.js"></script>
+<script>
+let emojiPickerPromise = null;
+
+function initEmojiPicker() {
+  if (emojiPickerPromise) return emojiPickerPromise;
+  const host = document.getElementById('emoji-picker-host');
+  emojiPickerPromise = fetch('/assets/emoji-mart/emoji-data.json')
+    .then(response => {
+      if (!response.ok) throw new Error(`Emoji data request failed (${response.status})`);
+      return response.json();
+    })
+    .then(data => {
+      const picker = new EmojiMart.Picker({
+        data,
+        onEmojiSelect: emoji => chooseEmoji(emoji.native),
+        set: 'native',
+        theme: 'dark',
+        locale: 'en',
+        emojiVersion: 15,
+        dynamicWidth: true,
+        navPosition: 'bottom',
+        previewPosition: 'none',
+        skinTonePosition: 'search',
+      });
+      host.replaceChildren(picker);
+      return picker;
+    })
+    .catch(error => {
+      console.error('Emoji picker failed to initialize', error);
+      host.textContent = `Unable to load emoji: ${error.message}`;
+      emojiPickerPromise = null;
+    });
+  return emojiPickerPromise;
+}
 </script>
 </body>
 </html>"""
@@ -367,8 +390,7 @@ def _make_handler(store, node_source):
             except OSError:
                 self._error(404, "asset not found", head_only=head_only)
                 return
-            # Supplying an ETag prevents emoji-picker-element from falling back
-            # to crypto.subtle, which is unavailable over plain HTTP on a LAN IP.
+            # Stable validators keep large picker assets cacheable on the LAN.
             etag = f'"{sha256(body).hexdigest()}"'
             self.send_response(200)
             self.send_header("Content-Type", f"{content_type}; charset=utf-8")

@@ -61,17 +61,20 @@ def test_friend_manager_contains_self_hosted_unicode_emoji_picker():
     from friend_server import UI_HTML, WEB_ASSETS
 
     assert "Channel 1 Locations" in UI_HTML
-    assert '<emoji-picker class="dark"' in UI_HTML
-    assert "emoji-click" in UI_HTML
-    assert "event.detail.unicode" in UI_HTML
-    assert "/assets/emoji-picker-element/index.js" in UI_HTML
-    assert "/assets/emoji-picker-element/emoji-data.json" in UI_HTML
+    assert "new EmojiMart.Picker" in UI_HTML
+    assert "onEmojiSelect" in UI_HTML
+    assert "emoji.native" in UI_HTML
+    assert "/assets/emoji-mart/browser.js" in UI_HTML
+    assert "/assets/emoji-mart/emoji-data.json" in UI_HTML
+    assert "indexedDB" not in UI_HTML
     assert "@media(max-width:680px)" in UI_HTML
     assert "viewport-fit=cover" in UI_HTML
     assert "/api/nodes/" in UI_HTML
     assert "renderEmojiPicker" not in UI_HTML
     assert "last_seen" not in UI_HTML
     assert all(path.is_file() for path, _ in WEB_ASSETS.values())
+    browser_asset = WEB_ASSETS["/assets/emoji-mart/browser.js"][0]
+    assert "indexedDB" not in browser_asset.read_text(encoding="utf-8")
 
 
 def test_emoji_data_asset_supports_etag_get_and_head(tmp_path):
@@ -81,7 +84,7 @@ def test_emoji_data_asset_supports_etag_get_and_head(tmp_path):
 
     def request(method):
         handler = object.__new__(handler_type)
-        handler.path = "/assets/emoji-picker-element/emoji-data.json"
+        handler.path = "/assets/emoji-mart/emoji-data.json"
         handler.wfile = BytesIO()
         handler.send_response = lambda status: setattr(handler, "status", status)
         handler.end_headers = lambda: None
