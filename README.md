@@ -375,6 +375,17 @@ a Pi account permitted to use Bluetooth. BlueZ pairs with
 `MESHTASTIC_BLE_PIN` (default `123456`) and stores the bond. Radios outside the
 allowlist are never connected or changed. Re-running the audit is safe.
 
+The scanner tolerates BlueZ's harmless `No discovery started` cleanup race and
+uses the devices already collected. If the scan still reports that Bluetooth is
+unavailable, verify and restart the Pi adapter before retrying:
+
+```bash
+bluetoothctl show
+sudo systemctl restart bluetooth
+bluetoothctl power on
+make mesh-ble-scan
+```
+
 `friends.json` is optional emoji metadata only. An empty file still displays
 all Channel 1 locations. Nodes without an override receive a deterministic
 symbol derived from their node ID.
@@ -940,7 +951,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 81 tests covering:
+The current suite contains 83 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.

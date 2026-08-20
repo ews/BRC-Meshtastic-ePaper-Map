@@ -1,5 +1,6 @@
 """Tests for safe Meshtastic BLE fleet configuration."""
 
+import asyncio
 import base64
 from types import SimpleNamespace
 
@@ -12,10 +13,12 @@ from tools.configure_ble_nodes import (
     CHANNEL_URL_ENV,
     BleTarget,
     ConfigurationError,
+    _discover_meshtastic_devices,
     apply_channel_policy,
     audit_interface,
     channel_differences,
     configure_target,
+    connect_ble,
     decode_channel_url,
     parse_env_file,
     parse_targets,
@@ -224,3 +227,57 @@ def test_audit_warns_about_non_recommended_burning_mesh_firmware():
 
     assert audit.result == "OK (warning)"
     assert "Burning Mesh 2.8.x" in audit.advisories[0]
+
+
+def test_scan_keeps_results_when_bluez_says_discovery_already_stopped():
+    class DiscoveryStoppedError(Exception):
+        dbus_error = "org.bluez.Error.Failed"
+
+    device = SimpleNamespace(name="Meshtastic_abcd", address="AA:BB:CC:DD:EE:FF")
+    advertisement = SimpleNamespace(
+        service_uuids=["6BA1B218-15A8-461F-9FA8-5DCAE273EAFD"]
+    )
+
+    class Scanner:
+        def __init__(self, **_kwargs):
+            self.discovered_devices_and_advertisement_data = {
+                device.address: (device, advertisement)
+            }
+
+        async def start(self):
+            pass
+
+        async def stop(self):
+            raise DiscoveryStoppedError(
+                "[org.bluez.Error.Failed] No discovery started"
+            )
+
+    devices = asyncio.run(
+        _discover_meshtastic_devices(timeout=0, scanner_factory=Scanner)
+    )
+
+    assert devices == [device]
+
+
+def test_connect_replaces_meshtastic_internal_scan_then_restores_it():
+    expected_device = SimpleNamespace(
+        name="Meshtastic_abcd", address="AA:BB:CC:DD:EE:FF"
+    )
+
+    class Interface:
+        @staticmethod
+        def scan():
+            return ["original scanner"]
+
+        def __init__(self, address):
+            self.address = address
+            self.devices = self.scan()
+
+    interface = connect_ble(
+        expected_device.address,
+        interface_class=Interface,
+        scanner=lambda: [expected_device],
+    )
+
+    assert interface.devices == [expected_device]
+    assert Interface.scan() == ["original scanner"]

@@ -9,8 +9,10 @@ explicit --apply flag and an expected node ID for every BLE address.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import hashlib
+import logging
 import os
 import re
 import subprocess
@@ -33,6 +35,8 @@ DEFAULT_BLE_PIN = "123456"
 NODE_ID_RE = re.compile(r"^![0-9a-fA-F]{8}$")
 BLE_ADDRESS_RE = re.compile(r"^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 RECOMMENDED_FIRMWARE_RE = re.compile(r"^2\.8(?:\.|$)")
+MESHTASTIC_SERVICE_UUID = "6ba1b218-15a8-461f-9fa8-5dcae273eafd"
+LOGGER = logging.getLogger(__name__)
 
 
 class ConfigurationError(ValueError):
@@ -430,18 +434,71 @@ def ensure_paired(address: str, pin: str, timeout: int = 35) -> None:
         raise PairingError("paired successfully but BlueZ could not trust the device")
 
 
+def _discovery_was_already_stopped(exc: Exception) -> bool:
+    """Recognize BlueZ's harmless StopDiscovery race."""
+    return (
+        getattr(exc, "dbus_error", None) == "org.bluez.Error.Failed"
+        and "No discovery started" in str(exc)
+    )
+
+
+async def _discover_meshtastic_devices(
+    timeout: float = 10,
+    scanner_factory=None,
+):
+    """Scan while retaining results if another BlueZ client stops discovery."""
+    if scanner_factory is None:
+        from bleak import BleakScanner
+
+        scanner_factory = BleakScanner
+
+    scanner = scanner_factory(service_uuids=[MESHTASTIC_SERVICE_UUID])
+    await scanner.start()
+    try:
+        await asyncio.sleep(timeout)
+    finally:
+        try:
+            await scanner.stop()
+        except Exception as exc:
+            if not _discovery_was_already_stopped(exc):
+                raise
+            LOGGER.warning(
+                "BlueZ discovery was already stopped; using collected scan results"
+            )
+
+    devices = []
+    for device, advertisement in (
+        scanner.discovered_devices_and_advertisement_data.values()
+    ):
+        service_uuids = {
+            uuid.lower() for uuid in (advertisement.service_uuids or [])
+        }
+        if MESHTASTIC_SERVICE_UUID in service_uuids:
+            devices.append(device)
+    return devices
+
+
 def scan_devices():
-    """Return nearby Meshtastic BLE peripherals."""
-    from meshtastic.ble_interface import BLEInterface
-
-    return BLEInterface.scan()
+    """Return nearby Meshtastic BLE peripherals using resilient BlueZ cleanup."""
+    return asyncio.run(_discover_meshtastic_devices())
 
 
-def connect_ble(address: str):
-    """Connect to one allowlisted Meshtastic BLE peripheral."""
-    from meshtastic.ble_interface import BLEInterface
+def connect_ble(address: str, interface_class=None, scanner=scan_devices):
+    """Connect while replacing Meshtastic's scan with the resilient scanner."""
+    if interface_class is None:
+        from meshtastic.ble_interface import BLEInterface
 
-    return BLEInterface(address)
+        interface_class = BLEInterface
+
+    original_scan = interface_class.__dict__.get("scan")
+    interface_class.scan = staticmethod(scanner)
+    try:
+        return interface_class(address)
+    finally:
+        if original_scan is None:
+            delattr(interface_class, "scan")
+        else:
+            interface_class.scan = original_scan
 
 
 def close_interface(interface) -> None:
