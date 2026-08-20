@@ -1,0 +1,226 @@
+"""Tests for safe Meshtastic BLE fleet configuration."""
+
+import base64
+from types import SimpleNamespace
+
+import pytest
+from meshtastic.protobuf import apponly_pb2, channel_pb2, config_pb2
+
+from tools.configure_ble_nodes import (
+    BLE_PIN_ENV,
+    BLE_TARGETS_ENV,
+    CHANNEL_URL_ENV,
+    BleTarget,
+    ConfigurationError,
+    apply_channel_policy,
+    audit_interface,
+    channel_differences,
+    configure_target,
+    decode_channel_url,
+    parse_env_file,
+    parse_targets,
+    render_audits,
+)
+
+
+def _settings(name, key, precision):
+    settings = channel_pb2.ChannelSettings()
+    settings.name = name
+    settings.psk = key
+    settings.module_settings.position_precision = precision
+    return settings
+
+
+def _channel_url():
+    channel_set = apponly_pb2.ChannelSet()
+    channel_set.settings.extend(
+        [
+            _settings("Everyone", b"e" * 32, 0),
+            _settings("Kaleido", b"k" * 32, 32),
+        ]
+    )
+    payload = base64.urlsafe_b64encode(channel_set.SerializeToString())
+    return "https://meshtastic.org/e/#" + payload.rstrip(b"=").decode("ascii")
+
+
+def _channel(index, role, settings):
+    channel = channel_pb2.Channel(index=index, role=role)
+    channel.settings.CopyFrom(settings)
+    return channel
+
+
+class _LocalNode:
+    def __init__(self, channels):
+        self.channels = channels
+        position = config_pb2.Config.PositionConfig(
+            gps_mode=config_pb2.Config.PositionConfig.GpsMode.ENABLED
+        )
+        self.localConfig = SimpleNamespace(position=position)
+        self.writes = []
+
+    def writeChannel(self, index):
+        self.writes.append(index)
+
+
+class _Interface:
+    def __init__(self, channels, node_num=0x12345678):
+        self.localNode = _LocalNode(channels)
+        self.myInfo = SimpleNamespace(my_node_num=node_num)
+        self.nodesByNum = {
+            node_num: {
+                "user": {"longName": "Test Radio"},
+                "position": {"latitude": 40.78, "longitude": -119.20},
+            }
+        }
+        self.metadata = SimpleNamespace(firmware_version="2.8.0")
+        self.close_count = 0
+
+    def close(self):
+        self.close_count += 1
+
+
+def _matching_channels(desired):
+    return [
+        _channel(0, channel_pb2.Channel.Role.PRIMARY, desired.settings[0]),
+        _channel(1, channel_pb2.Channel.Role.SECONDARY, desired.settings[1]),
+    ]
+
+
+def test_env_file_keeps_channel_url_fragment_and_private_values(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"{CHANNEL_URL_ENV}={_channel_url()}\n"
+        f"{BLE_PIN_ENV}='123456'\n"
+        f"{BLE_TARGETS_ENV}=AA:BB:CC:DD:EE:FF=!12345678\n",
+        encoding="utf-8",
+    )
+
+    values = parse_env_file(env_file)
+
+    assert values[CHANNEL_URL_ENV] == _channel_url()
+    assert values[BLE_PIN_ENV] == "123456"
+    assert values[BLE_TARGETS_ENV].endswith("=!12345678")
+
+
+def test_decode_channel_url_requires_location_only_on_channel_one():
+    desired = decode_channel_url(_channel_url())
+
+    assert [settings.name for settings in desired.settings] == ["Everyone", "Kaleido"]
+    assert desired.settings[0].module_settings.position_precision == 0
+    assert desired.settings[1].module_settings.position_precision == 32
+
+    channel_set = apponly_pb2.ChannelSet()
+    channel_set.settings.extend(
+        [_settings("Everyone", b"e" * 32, 32), _settings("Kaleido", b"k" * 32, 32)]
+    )
+    encoded = base64.urlsafe_b64encode(channel_set.SerializeToString()).decode()
+    with pytest.raises(ConfigurationError, match="channel 0"):
+        decode_channel_url(f"https://meshtastic.org/e/#{encoded}")
+
+
+def test_target_allowlist_normalizes_and_rejects_unsafe_inventory():
+    targets = parse_targets(
+        "aa:bb:cc:dd:ee:ff=!ABCDEF12, 11:22:33:44:55:66=!12345678"
+    )
+
+    assert targets == [
+        BleTarget("AA:BB:CC:DD:EE:FF", "!abcdef12"),
+        BleTarget("11:22:33:44:55:66", "!12345678"),
+    ]
+    with pytest.raises(ConfigurationError, match="duplicate"):
+        parse_targets("AA:BB:CC:DD:EE:FF,aa:bb:cc:dd:ee:ff")
+    with pytest.raises(ConfigurationError, match="invalid BLE"):
+        parse_targets("nearby-radio")
+
+
+def test_channel_policy_repairs_two_slots_and_disables_other_location_sharing():
+    desired = decode_channel_url(_channel_url())
+    channels = _matching_channels(desired)
+    channels[1].settings.module_settings.position_precision = 0
+    channels.append(
+        _channel(2, channel_pb2.Channel.Role.SECONDARY, _settings("Other", b"o", 16))
+    )
+    local_node = _LocalNode(channels)
+
+    differences = channel_differences(channels, desired)
+    changed = apply_channel_policy(local_node, desired)
+
+    assert "channel 1 position precision is 0, expected 32" in differences
+    assert any("channel 2" in item for item in differences)
+    assert changed == [1, 2]
+    assert local_node.writes == [1, 2]
+    assert channel_differences(channels, desired) == []
+
+
+def test_identity_mismatch_is_reported_and_never_written():
+    desired = decode_channel_url(_channel_url())
+    interface = _Interface(_matching_channels(desired))
+    interface.localNode.channels[1].settings.name = "Wrong"
+    target = BleTarget("AA:BB:CC:DD:EE:FF", "!ffffffff")
+
+    audit = configure_target(
+        target,
+        desired,
+        apply=True,
+        connect=lambda _address: interface,
+        settle_seconds=0,
+    )
+
+    assert audit.result == "MISMATCH"
+    assert "refusing changes" in audit.differences[0]
+    assert interface.localNode.writes == []
+    assert interface.close_count == 1
+
+
+def test_apply_reconnects_and_verifies_without_printing_keys():
+    desired = decode_channel_url(_channel_url())
+    interface = _Interface(_matching_channels(desired))
+    interface.localNode.channels[1].settings.name = "Wrong"
+    target = BleTarget("AA:BB:CC:DD:EE:FF", "!12345678")
+
+    audit = configure_target(
+        target,
+        desired,
+        apply=True,
+        connect=lambda _address: interface,
+        settle_seconds=0,
+    )
+    rendered = render_audits([audit])
+
+    assert audit.result == "OK"
+    assert audit.changed is True
+    assert interface.localNode.writes == [1]
+    assert interface.close_count == 2
+    assert "OK (changed)" in rendered
+    assert "kkkk" not in rendered
+
+
+def test_audit_reports_gps_state_without_changing_position_config():
+    desired = decode_channel_url(_channel_url())
+    interface = _Interface(_matching_channels(desired))
+    before = interface.localNode.localConfig.position.SerializeToString()
+
+    audit = audit_interface(
+        interface,
+        BleTarget("AA:BB:CC:DD:EE:FF", "!12345678"),
+        desired,
+    )
+
+    assert audit.location == "ENABLED, fix available"
+    assert audit.result == "OK"
+    assert interface.localNode.localConfig.position.SerializeToString() == before
+
+
+def test_audit_warns_about_non_recommended_burning_mesh_firmware():
+    desired = decode_channel_url(_channel_url())
+    interface = _Interface(_matching_channels(desired))
+    interface.metadata.firmware_version = "2.7.11"
+
+    audit = audit_interface(
+        interface,
+        BleTarget("AA:BB:CC:DD:EE:FF", "!12345678"),
+        desired,
+    )
+
+    assert audit.result == "OK (warning)"
+    assert "Burning Mesh 2.8.x" in audit.advisories[0]

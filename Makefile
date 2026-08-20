@@ -16,8 +16,11 @@ WEATHER_ALERTS ?= 1
 WEATHER_ALERTS_ARG = $(if $(filter 1 true yes on,$(strip $(WEATHER_ALERTS))),--weather-alerts,--no-weather-alerts)
 MESH_HISTORY_OUTPUT ?= mesh-history.csv
 CONVERSATIONS_OUTPUT ?= conversations.csv
+BLE_ENV_FILE ?= .env
+BLE_APPLY ?= 0
+BLE_APPLY_ARG = $(if $(filter 1 true yes on,$(strip $(BLE_APPLY))),--apply,)
 
-.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations logs dump-mesh-history dump-conversations test-screen pytest clean help
+.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config logs dump-mesh-history dump-conversations test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -73,10 +76,16 @@ run-map: check-venv  ## display the live map on ePaper and connect to Meshtastic
 	$(VENV_PYTHON) display_map.py $(WEATHER_ALERTS_ARG)
 
 mesh-locations: check-venv  ## compare radio NodeDB with map-retained locations
-	@echo "Radio NodeDB (not channel-specific); N/A means the radio has no stored position."
+	@echo "Radio NodeDB (not channel-specific); N/A means the CLI did not expose that field."
 	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --nodes --show-fields $(MESH_LOCATION_FIELDS)
 	@echo ""
 	$(VENV_PYTHON) tools/show_latest_locations.py $(HISTORY_DATABASE_ARG)
+
+mesh-ble-scan: check-venv  ## list nearby Meshtastic BLE radios
+	$(VENV_PYTHON) tools/configure_ble_nodes.py --scan
+
+mesh-ble-config: check-venv  ## audit BLE radios; set BLE_APPLY=1 to repair and verify
+	$(VENV_PYTHON) tools/configure_ble_nodes.py --env-file "$(BLE_ENV_FILE)" $(BLE_APPLY_ARG)
 
 logs:  ## show the latest systemd map logs
 	journalctl -u brc-meshtastic-map.service -n 100 --no-pager

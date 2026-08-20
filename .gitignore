@@ -10,6 +10,9 @@ mesh-history.csv
 conversations.csv
 .daily-weather-state.json
 .daily-weather-state.json.lock
+.env
+.env.*
+!.env.example
 requirements-laptop.txt
 *.egg-info/
 dist/

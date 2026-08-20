@@ -318,12 +318,62 @@ sudo systemctl start brc-meshtastic-map.service
 ```
 
 The command prints two tables. The first reads the radio's channel-agnostic
-NodeDB; it does not query or filter channel 1, and shows `N/A` when the radio
-has no stored position for a known identity. The second reads the newest SQLite
-position for every node—the same persistent set restored by the map. If serial
-auto-detection is ambiguous, use
+NodeDB; it does not query or filter channel 1. `N/A` means that the CLI did not
+receive or expose that field during its fresh connection—it does not prove that
+the node never transmitted it. The second reads the newest SQLite position for
+every node—the same persistent set restored by the map. If serial auto-detection
+is ambiguous, use
 `make mesh-locations MESH_DEVICE=/dev/ttyACM0`. Differences between the tables
 are expected when the map retained a position that the radio has evicted.
+
+### Audit and repair nearby radios over BLE
+
+The BLE fleet tool checks an explicit list of nearby radios against one private
+Meshtastic channel URL. It verifies that Everyone is primary channel 0 with
+location sharing off, Kaleido is secondary channel 1 with the URL's key and
+location precision, and no higher enabled channel also shares location. GPS,
+fixed-position, or phone-provided location availability is reported separately;
+channel configuration cannot create a GPS fix. Firmware other than the current
+recommended Burning Mesh 2.8.x release is also reported as a warning, but the
+tool never flashes firmware.
+
+Create the private configuration on the Raspberry Pi:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+editor .env
+```
+
+Paste the complete private channel URL into `MESHTASTIC_CHANNEL_URL`. Set
+`MESHTASTIC_BLE_TARGETS` to a comma-separated allowlist of BLE MAC address and
+expected node ID pairs, for example:
+
+```dotenv
+MESHTASTIC_BLE_TARGETS=AA:BB:CC:DD:EE:FF=!12345678,11:22:33:44:55:66=!abcdef12
+```
+
+The URL embeds encryption keys, so `.env` and `.env.*` are git-ignored while
+`.env.example` remains safe to commit. The tool never prints raw keys. Discover
+addresses, audit without writing, then explicitly repair mismatches:
+
+```bash
+make mesh-ble-scan
+make mesh-ble-config
+make mesh-ble-config BLE_APPLY=1
+```
+
+Apply mode refuses targets without an expected node ID and refuses to change a
+radio whose connected identity does not match the allowlist. It overwrites only
+channel 0 and channel 1 from the URL and disables location precision on enabled
+higher channels; it does not apply the URL's LoRa radio settings or alter the GPS
+source configuration. Each changed radio is disconnected, reconnected, and
+read back before it is reported as successful.
+
+Keep each radio awake and BLE-enabled, disconnect its phone first, and run from
+a Pi account permitted to use Bluetooth. BlueZ pairs with
+`MESHTASTIC_BLE_PIN` (default `123456`) and stores the bond. Radios outside the
+allowlist are never connected or changed. Re-running the audit is safe.
 
 `friends.json` is optional emoji metadata only. An empty file still displays
 all Channel 1 locations. Nodes without an override receive a deterministic
@@ -650,6 +700,8 @@ coordinates outside the canvas are clamped to its nearest edge.
 | `make run` | Alias for `make test`. |
 | `make run-map` | Run the live Meshtastic map on e-paper. |
 | `make mesh-locations` | Show every node and last GPS location in the radio's NodeDB. |
+| `make mesh-ble-scan` | Discover nearby Meshtastic BLE radios. |
+| `make mesh-ble-config` | Audit allowlisted BLE radios; add `BLE_APPLY=1` to repair and verify. |
 | `make logs` | Show the latest systemd map-service logs. |
 | `make dump-mesh-history` | Export positions to `mesh-history.csv`. |
 | `make dump-conversations` | Export received text to `conversations.csv`. |
@@ -667,6 +719,8 @@ Relevant targets also accept these Make variables:
 | `HISTORY_DATABASE` | value from `config.yaml` | Optional source database override. |
 | `MESH_DEVICE` | auto-detected | Serial device used by `make mesh-locations`. |
 | `WEATHER_ALERTS` | `1` | Set to `0` to disable integrated alerts for `make run-map`. |
+| `BLE_ENV_FILE` | `.env` | Private channel URL, BLE PIN, and radio allowlist. |
+| `BLE_APPLY` | `0` | Set to `1` to repair BLE channel mismatches and verify them. |
 
 ## Architecture and files
 
@@ -712,6 +766,7 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 | `tools/full_mockup.py` | GPS-first populated map preview and moving E6 demo. |
 | `tools/export_history.py` | Read-only SQLite-to-CSV exports. |
 | `tools/show_latest_locations.py` | Side-by-side comparison support for the map's retained SQLite positions. |
+| `tools/configure_ble_nodes.py` | Safe BLE discovery, channel audit, allowlisted repair, and read-back verification. |
 | `tools/send_daily_weather.py` | Shared hourly scheduler, ACK handling, state, and standalone weather diagnostic. |
 | `tools/test_screen.py` | Raspberry Pi E6 hardware test. |
 | `tools/resize_map.py` | Aspect-preserving map resize and placement suggestion. |
@@ -885,7 +940,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 73 tests covering:
+The current suite contains 81 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
@@ -897,6 +952,7 @@ The current suite contains 73 tests covering:
 - Daily weather suppression, ACK/NAK handling, and cron retry behavior.
 - Serial selection, TCP fallback, Meshtastic position parsing, Channel 1 filtering,
   and radio NodeDB seeding.
+- BLE channel-URL validation, allowlisting, identity checks, repair, and read-back.
 - GPS-first mock population, movement, timing, and e-paper lifecycle.
 
 Formatting configuration lives in `pyproject.toml` (`ruff`, 88-character line
