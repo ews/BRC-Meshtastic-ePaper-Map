@@ -25,7 +25,7 @@ ADMIN_BLE_KEY = $(shell grep '^MESHTASTIC_ADMIN_BLE_PUBLIC_KEY=' $(BLE_ENV_FILE)
 ADMIN_USB_KEY = $(shell grep '^MESHTASTIC_ADMIN_USB_PUBLIC_KEY=' $(BLE_ENV_FILE) | cut -d= -f2-)
 CHANNEL_URL = $(shell grep '^MESHTASTIC_CHANNEL_URL=' $(BLE_ENV_FILE) | cut -d= -f2-)
 
-.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config mesh-admin-pull-keys mesh-admin-audit mesh-admin-enroll mesh-provision mesh-provision-reboot convert-image display-image clear-image logs dump-mesh-history dump-conversations test-screen pytest clean help
+.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-monitor-positions mesh-ble-scan mesh-ble-config mesh-admin-pull-keys mesh-admin-audit mesh-admin-enroll mesh-provision mesh-provision-reboot convert-image display-image clear-image logs dump-mesh-history dump-conversations test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -85,6 +85,9 @@ mesh-locations: check-venv  ## compare radio NodeDB with map-retained locations
 	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --nodes --show-fields $(MESH_LOCATION_FIELDS)
 	@echo ""
 	$(VENV_PYTHON) tools/show_latest_locations.py $(HISTORY_DATABASE_ARG)
+
+mesh-monitor-positions: check-venv  ## log every shared position with its channel (make mesh-monitor-positions MESH_DEVICE=/dev/ttyACM0)
+	$(VENV_PYTHON) tools/monitor_positions.py $(if $(strip $(MESH_DEVICE)),--port "$(MESH_DEVICE)",)
 
 mesh-ble-scan: check-venv  ## list nearby Meshtastic BLE radios
 	$(VENV_PYTHON) tools/configure_ble_nodes.py --scan
