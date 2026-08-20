@@ -41,6 +41,35 @@ def test_positions_are_persisted_and_duplicate_reports_are_ignored(tmp_path):
     ]
 
 
+def test_latest_positions_returns_newest_location_for_every_node(tmp_path):
+    store = HistoryStore(tmp_path / "history.sqlite3")
+    assert store.record_positions(_burner(source_time=100)) == 1
+    moved = _burner(source_time=200)
+    moved["Alice"]["coordinates"]["latitude"] = 40.79
+    assert store.record_positions(moved) == 1
+    bob = {
+        "Bob": {
+            "node_id": "!bbbb1234",
+            "coordinates": {
+                "latitude": 40.78,
+                "longitude": -119.20,
+                "time": 150,
+            },
+            "bm_coordinates": "03:00+B",
+        }
+    }
+    assert store.record_positions(bob) == 1
+
+    records = dict(store.latest_positions())
+    store.close()
+
+    assert set(records) == {"!abcd1234", "!bbbb1234"}
+    assert records["!abcd1234"]["user"]["longName"] == "Alice"
+    assert records["!abcd1234"]["position"]["latitude"] == 40.79
+    assert records["!abcd1234"]["position"]["time"] == 200
+    assert records["!bbbb1234"]["user"]["longName"] == "Bob"
+
+
 def test_received_chat_is_persisted_once(tmp_path):
     path = tmp_path / "history.sqlite3"
     store = HistoryStore(path)
@@ -66,7 +95,5 @@ def test_received_chat_is_persisted_once(tmp_path):
 
 
 def test_sender_name_comes_from_mesh_node_database():
-    interface = SimpleNamespace(
-        nodes={"!abcd1234": {"user": {"longName": "Alice"}}}
-    )
+    interface = SimpleNamespace(nodes={"!abcd1234": {"user": {"longName": "Alice"}}})
     assert sender_name_for_packet({"fromId": "!abcd1234"}, interface) == "Alice"

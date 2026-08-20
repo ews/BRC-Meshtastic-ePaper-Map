@@ -1,11 +1,12 @@
 """Tests for display refresh decisions and E6 frame composition."""
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import display_map
 import pytest
 from PIL import Image, ImageChops, ImageDraw
-from renderer import _detail_text, assign_burner_emojis, draw_node_labels
+from renderer import _clock_time, _detail_text, assign_burner_emojis, draw_node_labels
 
 
 def _node(lat=40.783247, lon=-119.207884):
@@ -81,19 +82,25 @@ def test_unicode_emoji_labels_render_on_list_and_map():
     draw_node_labels(
         {"Alice": {**_node(), "emoji": "🚀"}}, ImageDraw.Draw(rocket_frame)
     )
-    draw_node_labels(
-        {"Alice": {**_node(), "emoji": "⛺"}}, ImageDraw.Draw(tent_frame)
-    )
+    draw_node_labels({"Alice": {**_node(), "emoji": "⛺"}}, ImageDraw.Draw(tent_frame))
 
     assert ImageChops.difference(rocket_frame, tent_frame).getbbox() is not None
 
 
-def test_top_list_entry_uses_compact_hour_and_minute_timestamp():
+def test_top_list_entry_uses_12_hour_am_pm_timestamp():
     detail = _detail_text("Alice", _node(), "♥")
 
     assert detail.startswith("♥ Alice: 12:00+The Man @ ")
-    assert detail.count(":") == 3
+    assert detail.endswith((" AM", " PM"))
     assert " at " not in detail
+
+
+def test_position_time_uses_unpadded_12_hour_clock():
+    assert _clock_time(datetime(2026, 8, 19, 13, 5, tzinfo=timezone.utc)) == "1:05 PM"
+    assert (
+        _clock_time(datetime(2026, 8, 19, 0, 5, 9, tzinfo=timezone.utc), seconds=True)
+        == "12:05:09 AM"
+    )
 
 
 def test_emoji_labels_never_use_requested_yellow():
@@ -164,6 +171,9 @@ def test_initial_map_is_displayed_before_mesh_connection(monkeypatch):
         def __init__(self, path):
             pass
 
+        def latest_positions(self):
+            return []
+
         def close(self):
             events.append("history-close")
 
@@ -176,3 +186,63 @@ def test_initial_map_is_displayed_before_mesh_connection(monkeypatch):
         display_map.main(args)
 
     assert events == ["display", "connect", "history-close", "sleep"]
+
+
+def test_persisted_positions_are_drawn_before_mesh_connection(monkeypatch):
+    events = []
+
+    class FakeEPD:
+        def getbuffer(self, frame):
+            return frame
+
+        def display(self, frame):
+            events.append("display")
+
+        def sleep(self):
+            events.append("sleep")
+
+    class FakeHistory:
+        def __init__(self, path):
+            pass
+
+        def latest_positions(self):
+            return [
+                (
+                    "!1234",
+                    {
+                        "user": {"longName": "Alice"},
+                        "position": {
+                            "latitude": 40.783247,
+                            "longitude": -119.207884,
+                            "time": 100,
+                        },
+                    },
+                )
+            ]
+
+        def close(self):
+            events.append("history-close")
+
+    def cached_burners(*args):
+        events.append("restore-render")
+        return {"Alice": _node()}
+
+    def stop_at_mesh_connection():
+        events.append("connect")
+        raise RuntimeError("stop test after startup")
+
+    monkeypatch.setattr(display_map, "_init_epd", FakeEPD)
+    monkeypatch.setattr(display_map, "HistoryStore", FakeHistory)
+    monkeypatch.setattr(display_map, "_cached_burners", cached_burners)
+    monkeypatch.setattr(display_map, "connect_mesh_serial", stop_at_mesh_connection)
+
+    with pytest.raises(RuntimeError, match="stop test"):
+        display_map.main(SimpleNamespace(no_friends=True, screen=False, debug=False))
+
+    assert events == [
+        "restore-render",
+        "display",
+        "connect",
+        "history-close",
+        "sleep",
+    ]

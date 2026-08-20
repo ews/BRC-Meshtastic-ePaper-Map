@@ -5,7 +5,7 @@ and the debug test coordinate overlay.
 """
 
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 
 from PIL import ImageFont
 
@@ -77,14 +77,8 @@ def draw_upward_pentagon(draw, center, radius, outline_color=RED, fill_color=Non
 
 def assign_burner_emojis(burners):
     """Assign stable, distinct symbols to the visible burners when possible."""
-    used = {
-        burner["emoji"]
-        for burner in burners.values()
-        if burner.get("emoji")
-    }
-    ordered = sorted(
-        burners.items(), key=lambda item: item[1].get("node_id", item[0])
-    )
+    used = {burner["emoji"] for burner in burners.values() if burner.get("emoji")}
+    ordered = sorted(burners.items(), key=lambda item: item[1].get("node_id", item[0]))
     for name, burner in ordered:
         if burner.get("emoji"):
             continue
@@ -101,12 +95,8 @@ def draw_node_labels(burners, draw, colors=None):
     list_scale = 0.96
     base_font_size = 10 if dense_list else 12
     font = ImageFont.truetype(TEXT_FONT_PATH, base_font_size * list_scale)
-    legacy_emoji_font = ImageFont.truetype(
-        TEXT_FONT_PATH, 11 if dense_list else 13
-    )
-    unicode_emoji_font = ImageFont.truetype(
-        EMOJI_FONT_PATH, 11 if dense_list else 13
-    )
+    legacy_emoji_font = ImageFont.truetype(TEXT_FONT_PATH, 11 if dense_list else 13)
+    unicode_emoji_font = ImageFont.truetype(EMOJI_FONT_PATH, 11 if dense_list else 13)
     legacy_map_font = ImageFont.truetype(TEXT_FONT_PATH, 18)
     unicode_map_font = ImageFont.truetype(EMOJI_FONT_PATH, 15)
     text_start_height = 8 if dense_list else 20
@@ -143,10 +133,12 @@ def draw_node_labels(burners, draw, colors=None):
 def draw_updated_timestamp(draw, timestamp=None):
     """Draw the frame's local update time in the bottom-right corner."""
     updated_at = (
-        datetime.now() if timestamp is None else datetime.fromtimestamp(timestamp)
+        datetime.now(timezone.utc).astimezone()
+        if timestamp is None
+        else datetime.fromtimestamp(timestamp, timezone.utc).astimezone()
     )
     font = ImageFont.truetype(TEXT_FONT_PATH, 10)
-    label = f"updated: {updated_at:%Y-%m-%d %H:%M:%S}"
+    label = f"updated: {updated_at:%Y-%m-%d} {_clock_time(updated_at, seconds=True)}"
     draw.text(
         (c.WIDTH - 8, c.HEIGHT - 8),
         label,
@@ -187,9 +179,19 @@ def draw_test_coordinates(draw, calibrate=False):
     return draw
 
 
+def _clock_time(value, *, seconds=False):
+    """Format a local datetime with an unpadded 12-hour clock and AM/PM."""
+    hour = value.hour % 12 or 12
+    clock = f"{hour}:{value.minute:02d}"
+    if seconds:
+        clock += f":{value.second:02d}"
+    period = "AM" if value.hour < 12 else "PM"
+    return f"{clock} {period}"
+
+
 def _time_str(timestamp):
-    """Format a Unix timestamp as HH:MM."""
-    return datetime.fromtimestamp(timestamp).strftime("%H:%M")
+    """Format a Unix timestamp as h:mm AM/PM."""
+    return _clock_time(datetime.fromtimestamp(timestamp, timezone.utc).astimezone())
 
 
 def _detail_text(name, burner, emoji=None):

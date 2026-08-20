@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Channel 1 node and emoji management web server.
+"""Last-known node location and emoji management web server.
 
 Provides a REST API and responsive UI for assigning symbols to found nodes.
 Access at http://<host>:8051 when running.
@@ -35,7 +35,7 @@ UI_HTML = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Channel 1 Locations</title>
+<title>Last Known Locations</title>
 <style>
 :root{color-scheme:dark;--bg:#0b1020;--card:#151d31;--card2:#1b2740;--line:#2b3a58;--text:#f4f7fb;--muted:#94a3b8;--accent:#f43f5e;--green:#34d399;--blue:#60a5fa}
 *{box-sizing:border-box}
@@ -93,12 +93,12 @@ em-emoji-picker{width:100%;height:min(470px,65vh);--rgb-background:17,24,39;--rg
       <div class="logo">⌖</div>
       <div><h1>Camp Locations</h1><div class="subtitle">Tap an icon to personalize it</div></div>
     </div>
-    <div class="channel-badge">● Channel 1</div>
+    <div class="channel-badge">● Last known</div>
   </div>
 </header>
 <main>
   <div class="toolbar"><div id="status" aria-live="polite">Listening for locations…</div><button class="refresh" onclick="refreshNodes()">↻ Refresh</button></div>
-  <div id="nodes-list" class="nodes"><div class="empty"><strong>Waiting for Channel 1</strong>Nodes appear after their next shared location arrives.</div></div>
+  <div id="nodes-list" class="nodes"><div class="empty"><strong>No known locations</strong>Nodes appear after a GPS location has been received.</div></div>
 </main>
 <div id="emoji-modal" class="modal hidden" onclick="modalBackground(event)" role="dialog" aria-modal="true" aria-labelledby="picker-name">
   <div class="picker">
@@ -145,7 +145,7 @@ async function refreshNodes() {
 function renderNodes() {
   const list = document.getElementById('nodes-list');
   if (!nodes.length) {
-    list.innerHTML = '<div class="empty"><strong>Waiting for Channel 1</strong>Nodes appear after their next shared location arrives.</div>';
+    list.innerHTML = '<div class="empty"><strong>No known locations</strong>Nodes appear after a GPS location has been received.</div>';
     return;
   }
   list.innerHTML = nodes.map((node, index) => `
@@ -195,7 +195,11 @@ async function chooseEmoji(symbol) {
 function formatTime(timestamp) {
   if (!timestamp) return 'Position time unavailable';
   const value = new Date(Number(timestamp) * 1000);
-  return `Shared ${value.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+  const hours = value.getHours();
+  const hour = hours % 12 || 12;
+  const minute = String(value.getMinutes()).padStart(2, '0');
+  const period = hours < 12 ? 'AM' : 'PM';
+  return `Shared ${hour}:${minute} ${period}`;
 }
 
 function showToast(message, error=false) {
@@ -421,10 +425,8 @@ def _make_handler(store, node_source):
 
 
 def _list_channel_nodes(node_source, store: FriendStore) -> list[dict]:
-    """Return found Channel 1 nodes with their effective symbols."""
-    preferences = {
-        record["node_id"]: record for record in store.get_friends()
-    }
+    """Return retained last-known nodes with their effective symbols."""
+    preferences = {record["node_id"]: record for record in store.get_friends()}
     source_nodes = [dict(node) for node in node_source()]
     visible_ids = {node["node_id"] for node in source_nodes}
     used = {

@@ -15,6 +15,7 @@ browser tools for symbol preferences and map calibration.
 - [Quick start](#quick-start)
 - [Raspberry Pi installation](#raspberry-pi-installation)
 - [Running the map](#running-the-map)
+- [Daily weather broadcast](#daily-weather-broadcast)
 - [Display behavior](#display-behavior)
 - [Channel 1 locations and emoji](#channel-1-locations-and-emoji)
 - [Position and conversation history](#position-and-conversation-history)
@@ -40,12 +41,15 @@ The main process:
    not produce a usable node database, it tries Meshtastic TCP on `localhost`.
 4. Listens for live position packets on Meshtastic channel 1 and ignores
    positions received on other channels.
-5. Converts each Channel 1 GPS position to a BRC address and screen position.
-6. Saves Channel 1 position history to SQLite.
-7. Shows every Channel 1 location; `friends.json` never filters visibility.
-8. Refreshes the e-paper when nodes join or leave, an emoji changes, or a
-   displayed node moves at least `min_distance_refresh_ft`.
-9. Saves received Meshtastic text packets to SQLite as they arrive.
+5. Restores the newest saved position for every known node from SQLite.
+6. Merges additional last-known positions retained by the radio's NodeDB.
+7. Converts GPS positions to BRC addresses and screen positions.
+8. Tracks new live positions on Channel 1 and saves them to SQLite.
+9. Keeps every last-known location visible indefinitely; `friends.json` never
+   filters visibility.
+10. Refreshes the e-paper when nodes join or leave, an emoji changes, or a
+    displayed node moves at least `min_distance_refresh_ft`.
+11. Saves received Meshtastic text packets to SQLite as they arrive.
 
 Key features include:
 
@@ -199,15 +203,54 @@ Initial connection failures retry after 5, 10, 20, 40, 80, and then a maximum
 of 120 seconds. There is currently no command-line option for a remote TCP
 hostname.
 
+## Daily weather broadcast
+
+`tools/send_daily_weather.py` downloads the BRC morning forecast and broadcasts
+it as one reliable Meshtastic text packet on channel index `0`. It waits for a
+delivery acknowledgment before recording the Pacific-time day as complete. For
+a broadcast, the acknowledgment is normally implicit: the local radio heard a
+neighbor rebroadcast the packet. A timeout or NAK leaves the day incomplete so
+the next cron run can retry.
+
+Run it manually with the project's environment:
+
+```bash
+.venv/bin/python tools/send_daily_weather.py
+```
+
+After a successful acknowledgment, later runs that day print exactly:
+
+```text
+already sent
+```
+
+The default state and lock files are `.daily-weather-state.json` and
+`.daily-weather-state.json.lock` beside the project files. State writes are
+atomic, and the lock prevents overlapping cron processes from sending a
+duplicate. Both files are ignored by Git. The default day boundary is
+`America/Los_Angeles`.
+
+An hourly crontab entry using absolute paths is resilient to temporary feed,
+serial-device, or mesh failures:
+
+```cron
+7 * * * * /home/ews/projects/kaleidoscope/BRC-Meshtastic-ePaper-Map/.venv/bin/python /home/ews/projects/kaleidoscope/BRC-Meshtastic-ePaper-Map/tools/send_daily_weather.py
+```
+
+When auto-detection is ambiguous, add `--device /dev/ttyACM0`. Other useful
+options are `--ack-timeout`, `--fetch-timeout`, `--timezone`, and
+`--state-file`. The source text must fit in one Meshtastic packet; oversized or
+empty responses fail without marking the day complete.
+
 ## Display behavior
 
 Each rendered frame contains:
 
 - A compact detail list at the top with symbol, Meshtastic long name, BRC
-  address, and an `@ HH:MM` node-position timestamp.
+  address, and an `@ h:mm AM/PM` node-position timestamp.
 - The city map and dotted trash-fence outline.
 - A colored circular symbol marker at each projected location.
-- `updated: YYYY-MM-DD HH:MM:SS` in the bottom-right corner, using the Pi's
+- `updated: YYYY-MM-DD h:mm:ss AM/PM` in the bottom-right corner, using the Pi's
   local system time when the frame was composed.
 
 The list switches to a denser 10-point layout above 10 people. Marker and list
@@ -215,17 +258,25 @@ colors rotate through the supplied E6-safe palette. The live display normally
 uses red; the full mockup uses red, blue, green, and black.
 
 E-paper is refreshed only when the displayed set changes, an assigned emoji
-changes, or someone moves at least the configured distance. SQLite history is
-independent of this decision and can accept new position reports without an
-e-paper refresh.
+changes, or someone moves at least the configured distance. A node does not
+disappear merely because it has been quiet for hours or days. SQLite history is
+independent of the refresh decision and can accept new position reports without
+an e-paper refresh.
 
 ## Channel 1 locations and emoji
 
-The e-paper displays every live location packet received on zero-based
-Meshtastic channel index `1`. It does not use the merged NodeDB position for
-visibility because NodeDB does not retain the channel that supplied a position.
-Consequently, a node first appears after its next live Channel 1 position
-broadcast following application startup.
+The e-paper retains the last known GPS location of every node indefinitely.
+At startup it first restores the newest position for each node from SQLite,
+then merges any additional last-known positions held by the connected radio's
+NodeDB. This makes quiet devices visible immediately after a service restart.
+New live updates are still accepted only from zero-based Meshtastic channel
+index `1`, and newer timestamps always take precedence over restored data.
+
+Because NodeDB does not retain the source channel of an old position, the
+startup fallback can include a node whose historical location originally
+arrived on another channel. This is intentional: restoration favors showing
+all devices with a known location. A device that has never sent GPS coordinates
+cannot be placed on the map.
 
 This matches the recommended setup in the
 [Burning Mesh camp channel and location-sharing guide](https://docs.burningmesh.org/en/guides/camp_channels_and_locations):
@@ -233,6 +284,21 @@ keep Everyone on channel 0 with position sharing disabled, then enable agreed
 automatic position sharing on the encrypted camp channel at channel 1. The
 radio broadcasts automatically on only the lowest-numbered channel with
 location sharing enabled.
+
+To compare the map with every location currently stored in the radio's NodeDB,
+stop the map briefly so its serial connection is released, run the CLI table,
+then start the map again:
+
+```bash
+sudo systemctl stop brc-meshtastic-map.service
+make mesh-locations
+sudo systemctl start brc-meshtastic-map.service
+```
+
+The table includes every known node, with `N/A` for devices without a stored
+position. If serial auto-detection is ambiguous, use
+`make mesh-locations MESH_DEVICE=/dev/ttyACM0`. The map can contain additional
+locations restored from SQLite that the radio has since evicted from NodeDB.
 
 `friends.json` is optional emoji metadata only. An empty file still displays
 all Channel 1 locations. Nodes without an override receive a deterministic
@@ -244,10 +310,10 @@ Start `make run-map`, then open:
 http://<raspberry-pi-ip>:8051
 ```
 
-The responsive preference manager shows only nodes that have supplied a live
-Channel 1 location since `make run-map` started. Each phone-friendly card shows
-the node name, ID, current BRC address, shared time, and effective symbol. Tap
-the large symbol button to open a searchable picker and save an override.
+The responsive preference manager shows the same retained last-known nodes as
+the map. Each phone-friendly card shows the node name, ID, current BRC address,
+shared time, and effective symbol. Tap the large symbol button to open a
+searchable picker and save an override.
 
 The picker uses the `Emoji Mart` Web Component. It offers
 Unicode emoji search, categories, skin tones, large touch targets, and a
@@ -298,9 +364,11 @@ The database path defaults to `mesh_history.sqlite3`. Python's built-in
 uses WAL journaling and `synchronous=NORMAL`, and it is safe for the
 Meshtastic receive thread and display loop to share.
 
-History collection follows the Channel 1 location stream:
+History collection follows the live Channel 1 location stream and supplies the
+restart cache:
 
 - `positions` receives the latest positions observed on Channel 1.
+- On startup, the newest row for every node is restored to the display.
 - Duplicate positions are ignored using node ID, source timestamp, latitude,
   and longitude.
 - All received `meshtastic.receive.text` packets are saved immediately.
@@ -556,6 +624,8 @@ coordinates outside the canvas are clamped to its nearest edge.
 | `make calibrate` | Start the map calibrator on port 8050. |
 | `make run` | Alias for `make test`. |
 | `make run-map` | Run the live Meshtastic map on e-paper. |
+| `make mesh-locations` | Show every node and last GPS location in the radio's NodeDB. |
+| `make logs` | Show the latest systemd map-service logs. |
 | `make dump-mesh-history` | Export positions to `mesh-history.csv`. |
 | `make dump-conversations` | Export received text to `conversations.csv`. |
 | `make test-screen` | Run the E6 panel hardware test. |
@@ -563,13 +633,14 @@ coordinates outside the canvas are clamped to its nearest edge.
 | `make clean` | Remove `.venv`, Python caches, pytest cache, and build artifacts; history and emoji preferences remain. |
 | `make help` | Show Make targets and their short descriptions. |
 
-Export targets also accept these Make variables:
+Relevant targets also accept these Make variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MESH_HISTORY_OUTPUT` | `mesh-history.csv` | Position CSV destination. |
 | `CONVERSATIONS_OUTPUT` | `conversations.csv` | Conversation CSV destination. |
 | `HISTORY_DATABASE` | value from `config.yaml` | Optional source database override. |
+| `MESH_DEVICE` | auto-detected | Serial device used by `make mesh-locations`. |
 
 ## Architecture and files
 
@@ -578,7 +649,10 @@ Export targets also accept these Make variables:
 ```text
 Meshtastic serial ──fallback──> TCP localhost
        │
-       ├── Channel 1 position event ──> latest-location cache
+       ├── radio NodeDB last positions ───────┐
+       ├── Channel 1 position event ──────────┤
+       │                                      v
+       │                              latest-location cache
        │                                      │
        │                                      ├──> GPS/BRC conversion
        │                                      ├──> SQLite positions
@@ -588,6 +662,7 @@ Meshtastic serial ──fallback──> TCP localhost
        │
        └── received text event ───────────────────────────────> SQLite messages
 
+SQLite newest positions ───────────────> latest-location cache at startup
 friends.json ──> optional persistent emoji overrides (never visibility)
 config.yaml  ──> channel, display, geometry, projection, ports, and file paths
 ```
@@ -610,6 +685,7 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 | `config.py` | Configuration loading and derived geometry. |
 | `tools/full_mockup.py` | GPS-first populated map preview and moving E6 demo. |
 | `tools/export_history.py` | Read-only SQLite-to-CSV exports. |
+| `tools/send_daily_weather.py` | ACK-confirmed, cron-safe daily channel-0 forecast broadcast. |
 | `tools/test_screen.py` | Raspberry Pi E6 hardware test. |
 | `tools/resize_map.py` | Aspect-preserving map resize and placement suggestion. |
 | `tools/generate_map.py` | Developer-only 2026 GIS raster generator. |
@@ -726,14 +802,15 @@ The app tries TCP on `localhost` automatically. If neither is intended to work:
 
 Retries are expected and continue indefinitely with exponential backoff.
 
-### The map appears but no people appear
+### The map appears but some people do not appear
 
 - Confirm the camp channel is zero-based channel index 1 on every radio.
 - Keep position sharing off on channel 0 and enable it on channel 1; automatic
   broadcasts use only the lowest-numbered location-enabled channel.
-- Wait for a new live position broadcast after `make run-map` starts. Old
-  NodeDB positions are intentionally not used because they lack source-channel
-  information.
+- Confirm each missing device has sent GPS coordinates at least once. SQLite
+  and NodeDB restoration cannot place a device with no known location.
+- After upgrading, allow one successful run to import the radio's NodeDB and
+  save those positions into SQLite for future restarts.
 - Look for `received channel 1 position from !...` in `debug.log`.
 - If logs show positions on another channel, correct the radio channel setup or
   change `location_channel_index` in `config.yaml` deliberately.
@@ -775,16 +852,18 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 52 tests covering:
+The current suite contains 65 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
 - Refresh decisions, frame dimensions, symbols, timestamps, and startup order.
 - E6 palette packing, portrait rotation, validation, and SPI transfer.
 - Emoji persistence/conflicts, Channel 1 node listing, responsive UI, and picker structure.
-- SQLite position/chat storage and deduplication.
+- SQLite position/chat storage, deduplication, and last-known restoration.
 - CSV exports.
-- Serial selection, TCP fallback, Meshtastic position parsing, and Channel 1 filtering.
+- Daily weather suppression, ACK/NAK handling, and cron retry behavior.
+- Serial selection, TCP fallback, Meshtastic position parsing, Channel 1 filtering,
+  and radio NodeDB seeding.
 - GPS-first mock population, movement, timing, and e-paper lifecycle.
 
 Formatting configuration lives in `pyproject.toml` (`ruff`, 88-character line

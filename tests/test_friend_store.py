@@ -60,7 +60,8 @@ def test_legacy_file_is_migrated_with_distinct_emojis(tmp_path):
 def test_friend_manager_contains_self_hosted_unicode_emoji_picker():
     from friend_server import UI_HTML, WEB_ASSETS
 
-    assert "Channel 1 Locations" in UI_HTML
+    assert "Last Known Locations" in UI_HTML
+    assert "No known locations" in UI_HTML
     assert "new EmojiMart.Picker" in UI_HTML
     assert "onEmojiSelect" in UI_HTML
     assert "emoji.native" in UI_HTML
@@ -72,6 +73,7 @@ def test_friend_manager_contains_self_hosted_unicode_emoji_picker():
     assert "/api/nodes/" in UI_HTML
     assert "renderEmojiPicker" not in UI_HTML
     assert "last_seen" not in UI_HTML
+    assert "hours < 12 ? 'AM' : 'PM'" in UI_HTML
     assert all(path.is_file() for path, _ in WEB_ASSETS.values())
     browser_asset = WEB_ASSETS["/assets/emoji-mart/browser.js"][0]
     assert "indexedDB" not in browser_asset.read_text(encoding="utf-8")

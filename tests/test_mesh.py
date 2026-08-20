@@ -84,11 +84,7 @@ def test_channel_position_cache_snapshots_channel_one_sender_with_node_name():
     interface = type(
         "Interface",
         (),
-        {
-            "nodes": {
-                "!1e447ab7": {"user": {"longName": "Zack", "shortName": "zack"}}
-            }
-        },
+        {"nodes": {"!1e447ab7": {"user": {"longName": "Zack", "shortName": "zack"}}}},
     )()
 
     records = cache.snapshot(interface)
@@ -106,3 +102,44 @@ def test_channel_position_cache_snapshots_channel_one_sender_with_node_name():
             "position_time": 123,
         }
     ]
+
+
+def test_position_cache_restores_all_last_known_nodes_and_keeps_newest():
+    cache = mesh.ChannelPositionCache(1)
+    records = []
+    for index in range(8):
+        node_id = f"!0000000{index}"
+        records.append(
+            (
+                node_id,
+                {
+                    "user": {"longName": f"Node {index}"},
+                    "position": {
+                        "latitude": 40.783247 + index * 0.00001,
+                        "longitude": -119.207884,
+                        "time": 100 + index,
+                    },
+                },
+            )
+        )
+
+    assert cache.restore(records) == 8
+    assert cache.count() == 8
+
+    cache.receive(
+        {
+            "channel": 1,
+            "fromId": "!00000000",
+            "decoded": {
+                "position": {
+                    "latitude": 40.79,
+                    "longitude": -119.20,
+                    "time": 200,
+                }
+            },
+        }
+    )
+    assert cache.restore([records[0]]) == 0
+    positions = dict(cache.snapshot())
+    assert positions["!00000000"]["position"]["time"] == 200
+    assert positions["!00000000"]["user"]["longName"] == "Node 0"

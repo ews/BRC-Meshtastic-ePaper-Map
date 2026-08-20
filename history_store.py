@@ -138,6 +138,43 @@ class HistoryStore:
             )
             return self._connection.total_changes > before
 
+    def latest_positions(self) -> list[tuple[str, dict]]:
+        """Return the newest stored position for every known node."""
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT p.node_id, p.name, p.latitude, p.longitude,
+                       p.altitude, p.source_time
+                FROM positions AS p
+                JOIN (
+                    SELECT node_id, MAX(id) AS latest_id
+                    FROM positions
+                    GROUP BY node_id
+                ) AS latest ON latest.latest_id = p.id
+                ORDER BY p.node_id
+                """
+            ).fetchall()
+
+        records = []
+        for node_id, name, latitude, longitude, altitude, source_time in rows:
+            position = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "time": source_time,
+            }
+            if altitude is not None:
+                position["altitude"] = altitude
+            records.append(
+                (
+                    node_id,
+                    {
+                        "user": {"id": node_id, "longName": name},
+                        "position": position,
+                    },
+                )
+            )
+        return records
+
     def close(self) -> None:
         """Flush and close the database."""
         with self._lock:

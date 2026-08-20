@@ -8,6 +8,8 @@ mesh_history.sqlite3-shm
 mesh_history.sqlite3-wal
 mesh-history.csv
 conversations.csv
+.daily-weather-state.json
+.daily-weather-state.json.lock
 requirements-laptop.txt
 *.egg-info/
 dist/

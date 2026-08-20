@@ -21,6 +21,7 @@ from mesh import (
     connect_serial as connect_mesh_serial,
 )
 from renderer import (
+    assign_burner_emojis,
     draw_dot,
     draw_node_labels,
     draw_test_coordinates,
@@ -155,6 +156,20 @@ def _apply_friend_emojis(burners, friend_store):
     return burners, friends
 
 
+def _cached_burners(channel_positions, interface, friend_store):
+    """Build display-ready burners from all retained last-known positions."""
+    burners = add_bm_coordinates(channel_positions.snapshot(interface))
+    if friend_store is not None:
+        burners, friends = _apply_friend_emojis(burners, friend_store)
+        logging.debug(
+            "showing %d retained locations with %d emoji overrides",
+            len(burners),
+            len(friends),
+        )
+    assign_burner_emojis(burners)
+    return burners
+
+
 def main(args):
     base = _load_map()
     frame, draw = _new_frame(base)
@@ -190,6 +205,13 @@ def main(args):
         epd = _init_epd()
 
     history = HistoryStore(c.history_database)
+    restored = channel_positions.restore(history.latest_positions())
+    if restored:
+        logging.info(
+            "restored %d last-known positions from %s",
+            restored,
+            c.history_database,
+        )
     chat_callback = None
     position_callback = None
     old_coords = {}
@@ -199,11 +221,27 @@ def main(args):
         # Put useful content on the panel before mesh discovery/retries can block.
         if args.debug:
             frame = _draw_debug_overlay(base)
+        elif channel_positions.count():
+            old_coords = _cached_burners(
+                channel_positions,
+                interface,
+                friend_store,
+            )
+            frame, draw = _new_frame(base)
+            draw_node_labels(old_coords, draw)
         logging.info("displaying initial map")
         _display_frame(frame, args.screen, epd)
 
         if not args.debug:
             interface = connect_mesh_serial()
+            restored = channel_positions.restore(
+                (getattr(interface, "nodes", {}) or {}).items()
+            )
+            if restored:
+                logging.info(
+                    "loaded %d additional last-known positions from radio NodeDB",
+                    restored,
+                )
 
             def save_chat(packet, interface):
                 name = sender_name_for_packet(packet, interface)
@@ -215,24 +253,20 @@ def main(args):
             position_callback = channel_positions.receive
             pub.subscribe(position_callback, "meshtastic.receive.position")
             logging.info(
-                "showing positions received on Meshtastic channel %d",
+                "tracking live positions on Meshtastic channel %d; "
+                "retaining last-known positions indefinitely",
                 c.location_channel_index,
             )
         while True:
             if not args.debug:
-                burners = add_bm_coordinates(channel_positions.snapshot(interface))
+                burners = _cached_burners(
+                    channel_positions,
+                    interface,
+                    friend_store,
+                )
                 saved = history.record_positions(burners)
                 if saved:
                     logging.info("saved %d new position reports", saved)
-
-                # Friend records are optional emoji overrides, not an allowlist.
-                if friend_store is not None:
-                    burners, friends = _apply_friend_emojis(burners, friend_store)
-                    logging.debug(
-                        "showing %d channel locations with %d emoji overrides",
-                        len(burners),
-                        len(friends),
-                    )
 
                 if not equal_bm_coordinates(burners, old_coords):
                     old_coords = burners

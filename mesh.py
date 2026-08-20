@@ -1,8 +1,8 @@
 """Meshtastic radio interface — connection, polling, and node data extraction."""
 
-import time
 import threading
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 
 import meshtastic
 import meshtastic.serial_interface
@@ -25,6 +25,7 @@ class ChannelPositionCache:
     def __init__(self, channel_index):
         self.channel_index = int(channel_index)
         self._positions = {}
+        self._users = {}
         self._logged_other_channels = set()
         self._lock = threading.Lock()
 
@@ -59,32 +60,74 @@ class ChannelPositionCache:
 
         node_id = _packet_node_id(packet)
         if not node_id:
-            logging.info("ignoring channel %d position without sender", self.channel_index)
+            logging.info(
+                "ignoring channel %d position without sender", self.channel_index
+            )
             return
 
+        nodes = getattr(interface, "nodes", {}) or {}
+        user = dict(nodes.get(node_id, {}).get("user", {}))
         with self._lock:
+            changed = self._positions.get(node_id) != position
             self._positions[node_id] = position
-        logging.info("received channel %d position from %s", self.channel_index, node_id)
+            if user:
+                self._users[node_id] = user
+        log = logging.info if changed else logging.debug
+        log("received channel %d position from %s", self.channel_index, node_id)
+
+    def restore(self, records):
+        """Merge NodeDB-shaped last-known positions into the cache.
+
+        Newer source timestamps win. This accepts both records reconstructed
+        from SQLite and ``interface.nodes.items()`` from the radio.
+        """
+        restored = 0
+        for node_id, data in records:
+            position = _normalized_position(
+                data.get("position", data.get("coordinates", {}))
+            )
+            if position is None:
+                continue
+            node_id = str(node_id)
+            user = dict(data.get("user", {}))
+            user.setdefault("id", node_id)
+
+            with self._lock:
+                existing = self._positions.get(node_id)
+                if existing is not None and _position_time(existing) > _position_time(
+                    position
+                ):
+                    continue
+                changed = existing != position
+                self._positions[node_id] = position
+                if user:
+                    self._users[node_id] = user
+                if changed:
+                    restored += 1
+        return restored
 
     def snapshot(self, interface=None):
         """Return NodeDB-shaped records for conversion and rendering."""
         with self._lock:
             positions = {
-                node_id: dict(position)
-                for node_id, position in self._positions.items()
+                node_id: dict(position) for node_id, position in self._positions.items()
+            }
+            stored_users = {
+                node_id: dict(user) for node_id, user in self._users.items()
             }
 
         nodes = getattr(interface, "nodes", {}) or {}
         records = []
         for node_id, position in positions.items():
-            user = dict(nodes.get(node_id, {}).get("user", {}))
+            user = stored_users.get(node_id, {})
+            user.update(nodes.get(node_id, {}).get("user", {}))
             user.setdefault("id", node_id)
             user.setdefault("longName", user.get("shortName") or node_id)
             records.append((node_id, {"user": user, "position": position}))
         return records
 
     def web_nodes(self, interface=None):
-        """Return JSON-ready Channel 1 nodes for the emoji web app."""
+        """Return JSON-ready retained nodes for the emoji web app."""
         nodes = []
         for node_id, data in self.snapshot(interface):
             position = data["position"]
@@ -103,14 +146,17 @@ class ChannelPositionCache:
         return nodes
 
     def count(self):
-        """Return the number of senders with a cached channel position."""
+        """Return the number of senders with a retained position."""
         with self._lock:
             return len(self._positions)
 
 
 def time_from_timestamp(timestamp):
-    """Format a Unix timestamp as HH:MM:SS."""
-    return datetime.fromtimestamp(timestamp).strftime("%H:%M:%S")
+    """Format a Unix timestamp as h:mm:ss AM/PM."""
+    local_time = datetime.fromtimestamp(timestamp, timezone.utc).astimezone()
+    hour = local_time.hour % 12 or 12
+    period = "AM" if local_time.hour < 12 else "PM"
+    return f"{hour}:{local_time.minute:02d}:{local_time.second:02d} {period}"
 
 
 def connect_serial():
@@ -228,3 +274,11 @@ def _packet_node_id(packet):
         return f"!{int(packet['from']):08x}"
     except (TypeError, ValueError):
         return str(packet["from"])
+
+
+def _position_time(position):
+    """Return a comparable Meshtastic source timestamp."""
+    try:
+        return int(position.get("time", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
