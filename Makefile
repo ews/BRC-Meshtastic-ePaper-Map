@@ -25,7 +25,7 @@ ADMIN_BLE_KEY = $(shell grep '^MESHTASTIC_ADMIN_BLE_PUBLIC_KEY=' $(BLE_ENV_FILE)
 ADMIN_USB_KEY = $(shell grep '^MESHTASTIC_ADMIN_USB_PUBLIC_KEY=' $(BLE_ENV_FILE) | cut -d= -f2-)
 CHANNEL_URL = $(shell grep '^MESHTASTIC_CHANNEL_URL=' $(BLE_ENV_FILE) | cut -d= -f2-)
 
-.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config mesh-admin-pull-keys mesh-admin-audit mesh-admin-enroll mesh-provision logs dump-mesh-history dump-conversations test-screen pytest clean help
+.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config mesh-admin-pull-keys mesh-admin-audit mesh-admin-enroll mesh-provision mesh-provision-reboot convert-image display-image clear-image logs dump-mesh-history dump-conversations test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -134,6 +134,24 @@ dump-conversations: check-venv  ## export all received chats to conversations.cs
 # ── ePaper hardware test (Raspberry Pi only) ──────────────────
 test-screen: check-venv  ## clear ePaper and draw test pattern
 	$(VENV_PYTHON) tools/test_screen.py
+
+# ── image display tools ────────────────────────────────────────
+IMAGE ?=
+IMAGE_ARGS = $(if $(strip $(IMAGE)),"$(IMAGE)",)
+IMAGE_FIT ?= cover
+IMAGE_WIDTH ?= 800
+IMAGE_HEIGHT ?= 480
+
+convert-image: check-venv  ## convert any image to 6-color 800x480 (make convert-image IMAGE=photo.jpg [OUTPUT=out.png])
+	@[ -n "$(IMAGE)" ] || { echo "❌ usage: make convert-image IMAGE=photo.jpg [OUTPUT=out.png] [IMAGE_FIT=cover|contain]"; exit 1; }
+	$(VENV_PYTHON) tools/convert_image.py $(IMAGE_ARGS) --width $(IMAGE_WIDTH) --height $(IMAGE_HEIGHT) --fit $(IMAGE_FIT) $(if $(strip $(OUTPUT)),--output "$(OUTPUT)",)
+
+display-image: check-venv  ## show an image on the ePaper (make display-image IMAGE=photo.jpg)
+	@[ -n "$(IMAGE)" ] || { echo "❌ usage: make display-image IMAGE=photo.jpg [IMAGE_FIT=cover|contain]"; exit 1; }
+	$(VENV_PYTHON) tools/display_image.py $(IMAGE_ARGS) --fit $(IMAGE_FIT)
+
+clear-image: check-venv  ## blank the ePaper screen to white
+	$(VENV_PYTHON) tools/display_image.py --clear
 
 # ── tests ──────────────────────────────────────────────────────
 pytest: check-venv  ## run unit tests
