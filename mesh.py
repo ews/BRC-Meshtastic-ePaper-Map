@@ -9,7 +9,11 @@ import meshtastic.serial_interface
 import meshtastic.tcp_interface
 
 import config as c
-from coordinates import gps_to_burning_man, gps_to_image_coordinates
+from coordinates import (
+    gps_to_burning_man,
+    gps_to_image_coordinates,
+    warn_if_far_from_brc,
+)
 
 logging = c.logging
 
@@ -17,6 +21,8 @@ logging = c.logging
 _RETRY_BASE_SEC = 5
 _RETRY_MAX_SEC = 120
 _RETRY_FACTOR = 2
+_last_warned_far_positions = {}
+_warned_far_positions_lock = threading.Lock()
 
 
 class ChannelPositionCache:
@@ -26,11 +32,14 @@ class ChannelPositionCache:
         self.channel_index = int(channel_index)
         self._positions = {}
         self._users = {}
-        self._logged_other_channels = set()
+        self._logged_other_channel_nodes = set()
         self._lock = threading.Lock()
 
     def receive(self, packet, interface=None):
         """Record a decoded position packet when it belongs to this channel."""
+        node_id = _packet_node_id(packet)
+        user = _node_user(interface, node_id)
+        identity = _node_identity(node_id, user)
         try:
             packet_channel = int(packet.get("channel", 0))
         except (TypeError, ValueError):
@@ -39,13 +48,17 @@ class ChannelPositionCache:
             )
             return
         if packet_channel != self.channel_index:
+            sender_key = (packet_channel, node_id or "unknown")
             with self._lock:
-                first_on_channel = packet_channel not in self._logged_other_channels
-                self._logged_other_channels.add(packet_channel)
-            if first_on_channel:
+                first_from_sender = (
+                    sender_key not in self._logged_other_channel_nodes
+                )
+                self._logged_other_channel_nodes.add(sender_key)
+            if first_from_sender:
                 logging.info(
-                    "ignoring positions on channel %d; tracking channel %d",
+                    "ignoring channel %d position from %s; tracking channel %d",
                     packet_channel,
+                    identity,
                     self.channel_index,
                 )
             return
@@ -58,22 +71,25 @@ class ChannelPositionCache:
             )
             return
 
-        node_id = _packet_node_id(packet)
         if not node_id:
             logging.info(
                 "ignoring channel %d position without sender", self.channel_index
             )
             return
 
-        nodes = getattr(interface, "nodes", {}) or {}
-        user = dict(nodes.get(node_id, {}).get("user", {}))
         with self._lock:
             changed = self._positions.get(node_id) != position
             self._positions[node_id] = position
             if user:
                 self._users[node_id] = user
         log = logging.info if changed else logging.debug
-        log("received channel %d position from %s", self.channel_index, node_id)
+        log(
+            "received channel %d position from %s latitude=%.6f longitude=%.6f",
+            self.channel_index,
+            identity,
+            position["latitude"],
+            position["longitude"],
+        )
 
     def restore(self, records):
         """Merge NodeDB-shaped last-known positions into the cache.
@@ -138,7 +154,9 @@ class ChannelPositionCache:
                     "name": user.get("longName") or user.get("shortName") or node_id,
                     "short_name": user.get("shortName", ""),
                     "brc_address": gps_to_burning_man(
-                        position["latitude"], position["longitude"]
+                        position["latitude"],
+                        position["longitude"],
+                        validate=False,
                     ),
                     "position_time": position.get("time", 0),
                 }
@@ -226,6 +244,7 @@ def add_bm_coordinates(burners):
         logging.debug("%s", data)
         user = data.get("user", {})
         username = user.get("longName") or user.get("shortName") or node_id
+        identity = _node_identity(node_id, user)
         coordinates = _normalized_position(
             data.get("position", data.get("coordinates", {}))
         )
@@ -238,9 +257,15 @@ def add_bm_coordinates(burners):
             lat = output[username]["coordinates"]["latitude"]
             lon = output[username]["coordinates"]["longitude"]
 
-            output[username]["bm_coordinates"] = gps_to_burning_man(lat, lon)
+            _warn_far_position_once(node_id, lat, lon, identity)
+            output[username]["bm_coordinates"] = gps_to_burning_man(
+                lat,
+                lon,
+                validate=False,
+            )
             output[username]["image_coordinates"] = gps_to_image_coordinates(
-                (lat, lon, username)
+                (lat, lon, username),
+                validate=False,
             )
             logging.debug("image coordinates %s", output[username]["image_coordinates"])
         else:
@@ -282,3 +307,35 @@ def _position_time(position):
         return int(position.get("time", 0) or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _node_user(interface, node_id):
+    """Return current NodeDB user metadata for a packet sender."""
+    if interface is None or not node_id:
+        return {}
+    nodes = getattr(interface, "nodes", {}) or {}
+    return dict(nodes.get(node_id, {}).get("user", {}))
+
+
+def _node_identity(node_id, user=None):
+    """Return a stable, log-friendly node identity including hardware type."""
+    user = user or {}
+    resolved_id = node_id or user.get("id") or "unknown"
+    name = user.get("longName") or user.get("shortName") or "unknown"
+    short_name = user.get("shortName") or "unknown"
+    hardware = user.get("hwModel") or "unknown"
+    return (
+        f"node_id={resolved_id} name={name!r} short={short_name!r} "
+        f"hardware={hardware}"
+    )
+
+
+def _warn_far_position_once(node_id, latitude, longitude, identity):
+    """Warn once while a node's far-away position remains unchanged."""
+    key = node_id or identity
+    position = (float(latitude), float(longitude), identity)
+    with _warned_far_positions_lock:
+        if _last_warned_far_positions.get(key) == position:
+            return
+        _last_warned_far_positions[key] = position
+    warn_if_far_from_brc(latitude, longitude, subject=identity)

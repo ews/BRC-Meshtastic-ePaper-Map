@@ -33,12 +33,24 @@ def _bearing_deg(lat1, lon1, lat2, lon2):
     return (bearing + 360) % 360
 
 
-def _validate_coords(lat, lon):
-    """Check that coordinates are plausible (near BRC)."""
-    if abs(lat - c.MAN_LAT) > _MAX_DEGREES_FROM_MAN:
-        logging.warning("latitude %.6f is far from BRC center (%.6f)", lat, c.MAN_LAT)
-    if abs(lon - c.MAN_LONG) > _MAX_DEGREES_FROM_MAN:
-        logging.warning("longitude %.6f is far from BRC center (%.6f)", lon, c.MAN_LONG)
+def warn_if_far_from_brc(lat, lon, *, subject=None):
+    """Log one contextual warning when coordinates are implausibly far from BRC."""
+    latitude_far = abs(lat - c.MAN_LAT) > _MAX_DEGREES_FROM_MAN
+    longitude_far = abs(lon - c.MAN_LONG) > _MAX_DEGREES_FROM_MAN
+    if not latitude_far and not longitude_far:
+        return False
+
+    identity = f" for {subject}" if subject else ""
+    logging.warning(
+        "position%s is far from BRC center: latitude=%.6f longitude=%.6f "
+        "center=(%.6f, %.6f)",
+        identity,
+        lat,
+        lon,
+        c.MAN_LAT,
+        c.MAN_LONG,
+    )
+    return True
 
 
 def _point_to_segment_distance(point, start, end):
@@ -75,13 +87,14 @@ def distance_to_trash_fence_ft(lat, lon):
     return distance_px / c.projection.scale_px_per_ft
 
 
-def gps_to_burning_man(lat, lon):
+def gps_to_burning_man(lat, lon, *, validate=True, subject=None):
     """Convert GPS coordinates to a Burning Man address string.
 
     Returns e.g. "09:30+Esplanade" or "12:00+Temple" for known POIs.
     """
 
-    _validate_coords(lat, lon)
+    if validate:
+        warn_if_far_from_brc(lat, lon, subject=subject)
 
     distance = GD((c.MAN_LAT, c.MAN_LONG), (lat, lon)).feet
 
@@ -125,7 +138,7 @@ def gps_to_burning_man(lat, lon):
     return f"{clock}, {distance:.0f}ft from Man"
 
 
-def gps_to_image_coordinates(coord):
+def gps_to_image_coordinates(coord, *, validate=True, subject=None):
     """Convert (lat, lon, name) to (x, y) screen pixel coordinates.
 
     Uses the MapProjection configured from anchor points in config.yaml.
@@ -134,7 +147,8 @@ def gps_to_image_coordinates(coord):
     longitude = coord[1]
     point_name = coord[2]
 
-    _validate_coords(latitude, longitude)
+    if validate:
+        warn_if_far_from_brc(latitude, longitude, subject=subject)
 
     px, py = c.projection.gps_to_pixel(latitude, longitude)
 

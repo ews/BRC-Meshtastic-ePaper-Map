@@ -838,7 +838,13 @@ Retries are expected and continue indefinitely with exponential backoff.
   and NodeDB restoration cannot place a device with no known location.
 - After upgrading, allow one successful run to import the radio's NodeDB and
   save those positions into SQLite for future restarts.
-- Look for `received channel 1 position from !...` in `debug.log`.
+- Look for `received channel 1 position` in `debug.log`. Each accepted position
+  includes the node ID, long name, short name, hardware model, latitude, and
+  longitude. Rejected positions from another channel include the same device
+  identity once per sender, making a radio with channel 0 location sharing easy
+  to identify.
+- Far-from-BRC warnings identify the node and hardware model and are emitted
+  only once while its position remains unchanged, instead of on every refresh.
 - If logs show positions on another channel, correct the radio channel setup or
   change `location_channel_index` in `config.yaml` deliberately.
 - `friends.json` can be empty and does not affect visibility.
@@ -879,7 +885,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 70 tests covering:
+The current suite contains 73 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
