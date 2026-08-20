@@ -21,8 +21,11 @@ BLE_APPLY ?= 0
 BLE_APPLY_ARG = $(if $(filter 1 true yes on,$(strip $(BLE_APPLY))),--apply,)
 ADMIN_SERIAL_DEVICE ?=
 ADMIN_SERIAL_DEVICE_ARG = $(if $(strip $(ADMIN_SERIAL_DEVICE)),--serial-device "$(ADMIN_SERIAL_DEVICE)",)
+ADMIN_BLE_KEY = $(shell grep '^MESHTASTIC_ADMIN_BLE_PUBLIC_KEY=' $(BLE_ENV_FILE) | cut -d= -f2-)
+ADMIN_USB_KEY = $(shell grep '^MESHTASTIC_ADMIN_USB_PUBLIC_KEY=' $(BLE_ENV_FILE) | cut -d= -f2-)
+CHANNEL_URL = $(shell grep '^MESHTASTIC_CHANNEL_URL=' $(BLE_ENV_FILE) | cut -d= -f2-)
 
-.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config mesh-admin-pull-keys mesh-admin-audit mesh-admin-enroll logs dump-mesh-history dump-conversations test-screen pytest clean help
+.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config mesh-admin-pull-keys mesh-admin-audit mesh-admin-enroll mesh-provision logs dump-mesh-history dump-conversations test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -97,6 +100,26 @@ mesh-admin-audit: check-venv  ## audit both PKI administrator keys across the BL
 
 mesh-admin-enroll: check-venv  ## enroll both PKI administrator keys and verify every radio
 	$(VENV_PYTHON) tools/manage_admin_keys.py --env-file "$(BLE_ENV_FILE)" enroll
+
+# ── single-radio provisioning ──────────────────────────────────
+mesh-provision: check-venv  ## wipe and provision one radio: Everyone ch0, Kaleido ch1, admin keys, silent, GPS32
+	@echo "🔥 Factory resetting device (clears config, BLE bonds, PKI keys)..."
+	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --factory-reset-device
+	@sleep 10
+	@echo "📡 Setting channels from URL: Everyone (0) + Kaleido (1)..."
+	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --ch-set-url "$(CHANNEL_URL)"
+	@echo "🔑 Enrolling both administrator public keys..."
+	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --set security.admin_key "$(ADMIN_BLE_KEY)" --set security.admin_key "$(ADMIN_USB_KEY)"
+	@echo "🔕 Disabling bell and all sounds..."
+	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --set canned_message.send_bell false --set device.buzzer_mode DISABLED --set external_notification.enabled false
+	@echo "🛰 Setting GPS precision 32 on channel 1..."
+	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --ch-index 1 --ch-set module_settings.position_precision 32
+	@echo "🗑 Clearing node database..."
+	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --reset-nodedb
+	@echo "✅ Provisioning complete. Reboot: make mesh-provision-reboot MESH_DEVICE=/dev/ttyACM0"
+
+mesh-provision-reboot: check-venv  ## reboot the radio after provisioning
+	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --reboot
 
 logs:  ## show the latest systemd map logs
 	journalctl -u brc-meshtastic-map.service -n 100 --no-pager
