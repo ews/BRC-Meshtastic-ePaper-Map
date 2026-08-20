@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Convert any image to the 6-color 800x480 E6 e-paper palette.
+"""Convert any image to the 6-color 480x800 E6 e-paper palette.
+
+The panel is mounted in landscape (buffer 800x480); images are prepared at
+480x800 and the driver rotates them 90 degrees on display.
 
 Usage:
     python tools/convert_image.py photo.jpg
     python tools/convert_image.py photo.jpg --output out.png --fit contain
-    python tools/convert_image.py photo.png --width 480 --height 800
+    python tools/convert_image.py photo.png --width 800 --height 480
 """
 
 from __future__ import annotations
@@ -38,22 +41,18 @@ def convert(
     indexed.save(output, format="PNG")
     colors = indexed.getcolors(256)
     color_count = len(colors) if colors else 256
-    print(
-        f"Saved {output} ({indexed.width}x{indexed.height}, {color_count} colors)"
-    )
+    print(f"Saved {output} ({indexed.width}x{indexed.height}, {color_count} colors)")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", help="input JPG/PNG file")
+    parser.add_argument("-o", "--output", help="output PNG (default: <stem>_e6.png)")
     parser.add_argument(
-        "-o", "--output", help="output PNG (default: <stem>_e6.png)"
+        "-W", "--width", type=int, default=480, help="target width (default 480)"
     )
     parser.add_argument(
-        "-W", "--width", type=int, default=800, help="target width (default 800)"
-    )
-    parser.add_argument(
-        "-H", "--height", type=int, default=480, help="target height (default 480)"
+        "-H", "--height", type=int, default=800, help="target height (default 800)"
     )
     parser.add_argument(
         "--fit",
@@ -77,9 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     output = (
-        Path(args.output)
-        if args.output
-        else source.with_name(f"{source.stem}_e6.png")
+        Path(args.output) if args.output else source.with_name(f"{source.stem}_e6.png")
     )
     convert(source, output, args.width, args.height, args.fit, not args.no_dither)
     return 0

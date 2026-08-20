@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Display a JPG or PNG image on the WaveShare 7.3-inch E6 e-paper panel.
 
-The image is scaled to 800x480 (or 480x800, rotated on the panel), quantized
-to the six-color E6 palette, and written to the screen.
+The image is scaled to 480x800 (portrait canvas) and the driver rotates it
+90 degrees to fill the landscape-mounted 800x480 panel.
 
 Usage:
     python tools/display_image.py photo.jpg
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     with Image.open(source) as img:
-        resized = resize_to_fit(img, 800, 480, args.fit)
+        resized = resize_to_fit(img, 480, 800, args.fit)
         indexed = quantize_e6(resized, not args.no_dither)
 
     return display(indexed, no_sleep=args.no_sleep)

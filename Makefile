@@ -105,7 +105,7 @@ mesh-admin-enroll: check-venv  ## enroll both PKI administrator keys and verify 
 mesh-provision: check-venv  ## wipe and provision one radio: Everyone ch0, Kaleido ch1, admin keys, silent, GPS32
 	@echo "🔥 Factory resetting device (clears config, BLE bonds, PKI keys)..."
 	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --factory-reset-device
-	@sleep 10
+	@sleep 20
 	@echo "📡 Setting channels from URL: Everyone (0) + Kaleido (1)..."
 	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --ch-set-url "$(CHANNEL_URL)"
 	@echo "🔑 Enrolling both administrator public keys..."
@@ -139,10 +139,10 @@ test-screen: check-venv  ## clear ePaper and draw test pattern
 IMAGE ?=
 IMAGE_ARGS = $(if $(strip $(IMAGE)),"$(IMAGE)",)
 IMAGE_FIT ?= cover
-IMAGE_WIDTH ?= 800
-IMAGE_HEIGHT ?= 480
+IMAGE_WIDTH ?= 480
+IMAGE_HEIGHT ?= 800
 
-convert-image: check-venv  ## convert any image to 6-color 800x480 (make convert-image IMAGE=photo.jpg [OUTPUT=out.png])
+convert-image: check-venv  ## convert any image to 6-color 480x800 (make convert-image IMAGE=photo.jpg [OUTPUT=out.png])
 	@[ -n "$(IMAGE)" ] || { echo "❌ usage: make convert-image IMAGE=photo.jpg [OUTPUT=out.png] [IMAGE_FIT=cover|contain]"; exit 1; }
 	$(VENV_PYTHON) tools/convert_image.py $(IMAGE_ARGS) --width $(IMAGE_WIDTH) --height $(IMAGE_HEIGHT) --fit $(IMAGE_FIT) $(if $(strip $(OUTPUT)),--output "$(OUTPUT)",)
 
