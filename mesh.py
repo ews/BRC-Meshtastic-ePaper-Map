@@ -29,7 +29,12 @@ class ChannelPositionCache:
     """Keep the latest positions received on one Meshtastic channel."""
 
     def __init__(self, channel_index):
-        self.channel_index = int(channel_index)
+        try:
+            self.channel_index = int(channel_index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid channel_index {channel_index!r}"
+            ) from exc
         self._positions = {}
         self._users = {}
         self._logged_other_channel_nodes = set()
@@ -47,6 +52,26 @@ class ChannelPositionCache:
                 "ignoring position with invalid channel %r", packet.get("channel")
             )
             return
+
+        # Log every position with its raw channel before any filtering.
+        position = _normalized_position(packet.get("decoded", {}).get("position", {}))
+        if position is None:
+            logging.info(
+                "position packet on channel %d from %s has no lat/long",
+                packet_channel,
+                identity,
+            )
+            return
+        logging.info(
+            "position on channel %d from %s latitude=%.6f longitude=%.6f "
+            "(tracking channel %d)",
+            packet_channel,
+            identity,
+            position["latitude"],
+            position["longitude"],
+            self.channel_index,
+        )
+
         if packet_channel != self.channel_index:
             sender_key = (packet_channel, node_id or "unknown")
             with self._lock:
@@ -61,14 +86,6 @@ class ChannelPositionCache:
                     identity,
                     self.channel_index,
                 )
-            return
-
-        position = _normalized_position(packet.get("decoded", {}).get("position", {}))
-        if position is None:
-            logging.info(
-                "ignoring channel %d position without latitude/longitude",
-                self.channel_index,
-            )
             return
 
         if not node_id:
@@ -194,7 +211,7 @@ def connect_serial():
                 raise ConnectionError("Meshtastic interface has no node database")
             logging.info("connected")
             return iface
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - retry any connection failure
             logging.warning("mesh connection failed: %s — retrying in %ds", e, delay)
             time.sleep(delay)
             delay = min(delay * _RETRY_FACTOR, _RETRY_MAX_SEC)
@@ -209,7 +226,7 @@ def connect_tcp(host):
             iface = meshtastic.tcp_interface.TCPInterface(host)
             logging.info("connected")
             return iface
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - retry any connection failure
             logging.warning(
                 "mesh connection to %s failed: %s — retrying in %ds",
                 host,
@@ -226,7 +243,7 @@ def get_mesh_info(interface):
     while True:
         try:
             return interface.nodes.items()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - retry any poll failure
             logging.warning("mesh poll failed: %s — retrying in %ds", e, delay)
             time.sleep(delay)
             delay = min(delay * _RETRY_FACTOR, _RETRY_MAX_SEC)
@@ -333,7 +350,10 @@ def _node_identity(node_id, user=None):
 def _warn_far_position_once(node_id, latitude, longitude, identity):
     """Warn once while a node's far-away position remains unchanged."""
     key = node_id or identity
-    position = (float(latitude), float(longitude), identity)
+    try:
+        position = (float(latitude), float(longitude), identity)
+    except (TypeError, ValueError):
+        return
     with _warned_far_positions_lock:
         if _last_warned_far_positions.get(key) == position:
             return
