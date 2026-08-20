@@ -386,6 +386,69 @@ bluetoothctl power on
 make mesh-ble-scan
 ```
 
+Audit and apply modes print each scan, pairing attempt, connection, verified
+identity, mismatch, write, reconnect, and read-back result immediately. On a
+headless Pi, the pairing helper waits for BlueZ's actual PIN prompt before
+sending `MESHTASTIC_BLE_PIN`; the PIN is never printed. If a radio cannot pair,
+disconnect its phone, wake it, and confirm it uses fixed-PIN Bluetooth mode.
+
+### Two-device fleet administration
+
+The fleet uses two independent PKI administrator radios:
+
+- `!2ecbbfa5`, reached over its allowlisted BLE address.
+- `!913c4e9d`, the KWB radio connected to the Raspberry Pi over USB.
+
+Only their public keys are copied into `.env` and target radios. Their private
+keys never leave the controller radios. First ensure every BLE target has an
+expected `!nodeid` in `MESHTASTIC_BLE_TARGETS`; enrollment refuses address-only
+entries or identity mismatches.
+
+The map service owns the USB serial port, so stop it briefly while collecting
+the controller keys:
+
+```bash
+sudo systemctl stop brc-meshtastic-map.service
+make mesh-admin-pull-keys
+sudo systemctl start brc-meshtastic-map.service
+```
+
+`mesh-admin-pull-keys` verifies both controller identities and their distinct
+32-byte public keys, then atomically stores these private-file entries with mode
+`0600`:
+
+```dotenv
+MESHTASTIC_ADMIN_BLE_NODE_ID=!2ecbbfa5
+MESHTASTIC_ADMIN_USB_NODE_ID=!913c4e9d
+MESHTASTIC_ADMIN_BLE_PUBLIC_KEY=base64:...
+MESHTASTIC_ADMIN_USB_PUBLIC_KEY=base64:...
+```
+
+Audit, bootstrap both keys over BLE, and verify again:
+
+```bash
+make mesh-admin-audit
+make mesh-admin-enroll
+make mesh-admin-audit
+```
+
+Enrollment preserves existing valid administrator keys when all keys fit in the
+three slots supported by Meshtastic. It refuses to evict a key or exceed that
+limit. Each changed radio is reconnected and read back. It does not enable
+Managed Mode and only warns if the insecure legacy admin channel is enabled.
+
+LoRa remote administration becomes available only after this BLE bootstrap.
+Connect the CLI or a mobile app to either controller and address a trusted fleet
+node by node ID. For example, with the map service stopped so the CLI can use
+the USB controller:
+
+```bash
+.venv/bin/meshtastic --dest '!dc323b3a' --get device.role
+```
+
+Test remote reads before remote writes. Changing a target's channel or LoRa
+settings can remove the route needed to repair it.
+
 `friends.json` is optional emoji metadata only. An empty file still displays
 all Channel 1 locations. Nodes without an override receive a deterministic
 symbol derived from their node ID.
@@ -713,6 +776,9 @@ coordinates outside the canvas are clamped to its nearest edge.
 | `make mesh-locations` | Show every node and last GPS location in the radio's NodeDB. |
 | `make mesh-ble-scan` | Discover nearby Meshtastic BLE radios. |
 | `make mesh-ble-config` | Audit allowlisted BLE radios; add `BLE_APPLY=1` to repair and verify. |
+| `make mesh-admin-pull-keys` | Verify both controller radios and save their public keys in `.env`. |
+| `make mesh-admin-audit` | Check both administrator keys across the allowlisted fleet. |
+| `make mesh-admin-enroll` | Enroll both administrator keys over BLE and verify persistence. |
 | `make logs` | Show the latest systemd map-service logs. |
 | `make dump-mesh-history` | Export positions to `mesh-history.csv`. |
 | `make dump-conversations` | Export received text to `conversations.csv`. |
@@ -732,6 +798,7 @@ Relevant targets also accept these Make variables:
 | `WEATHER_ALERTS` | `1` | Set to `0` to disable integrated alerts for `make run-map`. |
 | `BLE_ENV_FILE` | `.env` | Private channel URL, BLE PIN, and radio allowlist. |
 | `BLE_APPLY` | `0` | Set to `1` to repair BLE channel mismatches and verify them. |
+| `ADMIN_SERIAL_DEVICE` | auto-detected | USB controller serial device used while pulling keys. |
 
 ## Architecture and files
 
@@ -778,6 +845,7 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 | `tools/export_history.py` | Read-only SQLite-to-CSV exports. |
 | `tools/show_latest_locations.py` | Side-by-side comparison support for the map's retained SQLite positions. |
 | `tools/configure_ble_nodes.py` | Safe BLE discovery, channel audit, allowlisted repair, and read-back verification. |
+| `tools/manage_admin_keys.py` | Two-controller public-key capture, fleet audit, enrollment, and verification. |
 | `tools/send_daily_weather.py` | Shared hourly scheduler, ACK handling, state, and standalone weather diagnostic. |
 | `tools/test_screen.py` | Raspberry Pi E6 hardware test. |
 | `tools/resize_map.py` | Aspect-preserving map resize and placement suggestion. |
@@ -951,7 +1019,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 83 tests covering:
+The current suite contains 94 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.
@@ -964,6 +1032,7 @@ The current suite contains 83 tests covering:
 - Serial selection, TCP fallback, Meshtastic position parsing, Channel 1 filtering,
   and radio NodeDB seeding.
 - BLE channel-URL validation, allowlisting, identity checks, repair, and read-back.
+- Headless BlueZ PIN pairing and two-controller PKI administrator enrollment.
 - GPS-first mock population, movement, timing, and e-paper lifecycle.
 
 Formatting configuration lives in `pyproject.toml` (`ruff`, 88-character line

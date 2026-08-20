@@ -2,17 +2,21 @@
 
 import asyncio
 import base64
+import subprocess
 from types import SimpleNamespace
 
 import pytest
 from meshtastic.protobuf import apponly_pb2, channel_pb2, config_pb2
 
+from tools import configure_ble_nodes
 from tools.configure_ble_nodes import (
     BLE_PIN_ENV,
     BLE_TARGETS_ENV,
     CHANNEL_URL_ENV,
     BleTarget,
     ConfigurationError,
+    PairingCommandResult,
+    _clean_bluetoothctl_output,
     _discover_meshtastic_devices,
     apply_channel_policy,
     audit_interface,
@@ -20,6 +24,7 @@ from tools.configure_ble_nodes import (
     configure_target,
     connect_ble,
     decode_channel_url,
+    ensure_paired,
     parse_env_file,
     parse_targets,
     render_audits,
@@ -281,3 +286,44 @@ def test_connect_replaces_meshtastic_internal_scan_then_restores_it():
 
     assert interface.devices == [expected_device]
     assert Interface.scan() == ["original scanner"]
+
+
+def test_pairing_waits_for_confirmation_and_reports_progress(monkeypatch):
+    paired_checks = iter([False, True])
+    monkeypatch.setattr(
+        configure_ble_nodes,
+        "is_paired",
+        lambda _address: next(paired_checks),
+    )
+    monkeypatch.setattr(configure_ble_nodes, "is_trusted", lambda _address: True)
+    monkeypatch.setattr(
+        configure_ble_nodes,
+        "_run_pairing_command",
+        lambda *_args: PairingCommandResult(
+            returncode=0,
+            output="[agent] Enter PIN code: Pairing successful",
+            pin_requested=True,
+        ),
+    )
+    monkeypatch.setattr(
+        configure_ble_nodes,
+        "_bluetoothctl",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
+    )
+    statuses = []
+
+    ensure_paired("AA:BB:CC:DD:EE:FF", "123456", status=statuses.append)
+
+    assert any("waiting for the fixed-PIN prompt" in item for item in statuses)
+    assert any("pairing confirmed" in item for item in statuses)
+    assert statuses[-1] == "paired and trusted"
+
+
+def test_bluetooth_output_never_displays_the_pin():
+    lines = _clean_bluetoothctl_output(
+        "\x1b[0mEnter PIN code: 123456\r\nPairing successful",
+        "123456",
+    )
+
+    assert all("123456" not in line for line in lines)
+    assert any("<redacted>" in line for line in lines)

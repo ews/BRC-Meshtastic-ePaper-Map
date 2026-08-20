@@ -19,8 +19,10 @@ CONVERSATIONS_OUTPUT ?= conversations.csv
 BLE_ENV_FILE ?= .env
 BLE_APPLY ?= 0
 BLE_APPLY_ARG = $(if $(filter 1 true yes on,$(strip $(BLE_APPLY))),--apply,)
+ADMIN_SERIAL_DEVICE ?=
+ADMIN_SERIAL_DEVICE_ARG = $(if $(strip $(ADMIN_SERIAL_DEVICE)),--serial-device "$(ADMIN_SERIAL_DEVICE)",)
 
-.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config logs dump-mesh-history dump-conversations test-screen pytest clean help
+.PHONY: all install install-pi check-venv test test-full-mockup test-full-mockup-epaper calibrate run run-map mesh-locations mesh-ble-scan mesh-ble-config mesh-admin-pull-keys mesh-admin-audit mesh-admin-enroll logs dump-mesh-history dump-conversations test-screen pytest clean help
 
 # ── default ────────────────────────────────────────────────────
 all: pytest  ## run unit tests using the existing environment
@@ -86,6 +88,15 @@ mesh-ble-scan: check-venv  ## list nearby Meshtastic BLE radios
 
 mesh-ble-config: check-venv  ## audit BLE radios; set BLE_APPLY=1 to repair and verify
 	$(VENV_PYTHON) tools/configure_ble_nodes.py --env-file "$(BLE_ENV_FILE)" $(BLE_APPLY_ARG)
+
+mesh-admin-pull-keys: check-venv  ## collect the BLE/USB controller public keys into .env
+	$(VENV_PYTHON) tools/manage_admin_keys.py --env-file "$(BLE_ENV_FILE)" $(ADMIN_SERIAL_DEVICE_ARG) pull
+
+mesh-admin-audit: check-venv  ## audit both PKI administrator keys across the BLE fleet
+	$(VENV_PYTHON) tools/manage_admin_keys.py --env-file "$(BLE_ENV_FILE)" audit
+
+mesh-admin-enroll: check-venv  ## enroll both PKI administrator keys and verify every radio
+	$(VENV_PYTHON) tools/manage_admin_keys.py --env-file "$(BLE_ENV_FILE)" enroll
 
 logs:  ## show the latest systemd map logs
 	journalctl -u brc-meshtastic-map.service -n 100 --no-pager

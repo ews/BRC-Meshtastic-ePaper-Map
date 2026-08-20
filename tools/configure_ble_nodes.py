@@ -14,9 +14,12 @@ import base64
 import hashlib
 import logging
 import os
+import pty
 import re
+import select
 import subprocess
 import sys
+import termios
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -37,6 +40,7 @@ BLE_ADDRESS_RE = re.compile(r"^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 RECOMMENDED_FIRMWARE_RE = re.compile(r"^2\.8(?:\.|$)")
 MESHTASTIC_SERVICE_UUID = "6ba1b218-15a8-461f-9fa8-5dcae273eafd"
 LOGGER = logging.getLogger(__name__)
+ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 class ConfigurationError(ValueError):
@@ -45,6 +49,16 @@ class ConfigurationError(ValueError):
 
 class PairingError(RuntimeError):
     """Raised when BlueZ cannot pair with an allowlisted radio."""
+
+
+@dataclass(frozen=True)
+class PairingCommandResult:
+    """Captured result from an interactive, PIN-aware bluetoothctl command."""
+
+    returncode: int
+    output: str
+    pin_requested: bool = False
+    timed_out: bool = False
 
 
 @dataclass(frozen=True)
@@ -402,36 +416,157 @@ def is_paired(address: str) -> bool:
     return "paired: yes" in output
 
 
-def ensure_paired(address: str, pin: str, timeout: int = 35) -> None:
+def is_trusted(address: str) -> bool:
+    """Return whether BlueZ trusts this device for future connections."""
+    result = _bluetoothctl("info", address, timeout=10)
+    output = f"{result.stdout}\n{result.stderr}".lower()
+    return "trusted: yes" in output
+
+
+def _clean_bluetoothctl_output(output: str, pin: str) -> list[str]:
+    """Return useful, deduplicated bluetoothctl lines with the PIN redacted."""
+    cleaned = ANSI_ESCAPE_RE.sub("", output).replace(pin, "<redacted>")
+    lines = []
+    for raw_line in re.split(r"[\r\n]+", cleaned):
+        line = raw_line.strip()
+        if not line or line in lines:
+            continue
+        if any(
+            marker in line.lower()
+            for marker in (
+                "pairing successful",
+                "failed",
+                "authentication",
+                "pin code",
+                "passkey",
+            )
+        ):
+            lines.append(line)
+    return lines
+
+
+def _run_pairing_command(
+    address: str,
+    pin: str,
+    timeout: int,
+) -> PairingCommandResult:
+    """Drive bluetoothctl through a PTY so the PIN is sent at its prompt."""
+    master_fd, slave_fd = pty.openpty()
+    terminal_settings = termios.tcgetattr(slave_fd)
+    terminal_settings[3] &= ~termios.ECHO
+    termios.tcsetattr(slave_fd, termios.TCSANOW, terminal_settings)
+    try:
+        process = subprocess.Popen(
+            [
+                "bluetoothctl",
+                "--agent",
+                "KeyboardOnly",
+                "--timeout",
+                str(timeout),
+                "pair",
+                address,
+            ],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True,
+        )
+    except FileNotFoundError as exc:
+        os.close(master_fd)
+        os.close(slave_fd)
+        raise PairingError("bluetoothctl is not installed") from exc
+    os.close(slave_fd)
+    deadline = time.monotonic() + timeout + 5
+    chunks = []
+    pin_requested = False
+    sent_confirmation = False
+    timed_out = False
+    try:
+        while True:
+            ready, _, _ = select.select([master_fd], [], [], 0.25)
+            if ready:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError:
+                    chunk = b""
+                if chunk:
+                    chunks.append(chunk)
+                    visible = b"".join(chunks).decode("utf-8", errors="replace")
+                    lowered = ANSI_ESCAPE_RE.sub("", visible).lower()
+                    if (
+                        not pin_requested
+                        and ("pin code" in lowered or "enter passkey" in lowered)
+                    ):
+                        os.write(master_fd, f"{pin}\n".encode())
+                        pin_requested = True
+                    if not sent_confirmation and "confirm passkey" in lowered:
+                        os.write(master_fd, b"yes\n")
+                        sent_confirmation = True
+            if process.poll() is not None:
+                break
+            if time.monotonic() >= deadline:
+                timed_out = True
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=3)
+                break
+    finally:
+        os.close(master_fd)
+
+    return PairingCommandResult(
+        returncode=process.returncode or 0,
+        output=b"".join(chunks).decode("utf-8", errors="replace"),
+        pin_requested=pin_requested,
+        timed_out=timed_out,
+    )
+
+
+def ensure_paired(
+    address: str,
+    pin: str,
+    timeout: int = 35,
+    status: Callable[[str], None] | None = None,
+) -> None:
     """Pair and trust one previously discovered BLE device using a fixed PIN."""
     if is_paired(address):
+        if status:
+            status("already paired")
+        if not is_trusted(address):
+            if status:
+                status("trusting the existing BlueZ bond")
+            trusted = _bluetoothctl("trust", address, timeout=10)
+            if trusted.returncode != 0 or not is_trusted(address):
+                raise PairingError("BlueZ could not trust the paired device")
         return
     if not pin.isdigit() or not 1 <= len(pin) <= 6 or int(pin) > 999999:
         raise ConfigurationError(f"{BLE_PIN_ENV} must be a 1-6 digit passkey")
 
-    result = _bluetoothctl(
-        "--agent",
-        "KeyboardOnly",
-        "--timeout",
-        str(timeout),
-        "pair",
-        address,
-        input_text=f"{pin}\n",
-        timeout=timeout + 5,
-    )
-    output = f"{result.stdout}\n{result.stderr}"
-    lowered = output.lower()
-    if result.returncode != 0 or "failed to pair" in lowered:
+    if status:
+        status("requesting BlueZ pairing; waiting for the fixed-PIN prompt")
+    result = _run_pairing_command(address, pin, timeout)
+    for line in _clean_bluetoothctl_output(result.output, pin):
+        if status:
+            status(f"BlueZ: {line}")
+    paired = is_paired(address)
+    if result.timed_out:
+        raise PairingError("pairing timed out before BlueZ confirmed a bond")
+    if not paired:
+        prompt_note = "" if result.pin_requested else "; no PIN prompt was received"
         raise PairingError(
             "pairing failed; confirm the radio is awake, disconnected from its phone, "
-            "and configured for the expected fixed PIN"
+            f"and configured for the expected fixed PIN{prompt_note}"
         )
-    if "pairing successful" not in lowered and not is_paired(address):
-        raise PairingError("BlueZ did not confirm that pairing succeeded")
 
+    if status:
+        status("pairing confirmed; trusting the radio")
     trusted = _bluetoothctl("trust", address, timeout=10)
-    if trusted.returncode != 0:
+    if trusted.returncode != 0 or not is_trusted(address):
         raise PairingError("paired successfully but BlueZ could not trust the device")
+    if status:
+        status("paired and trusted")
 
 
 def _discovery_was_already_stopped(exc: Exception) -> bool:
@@ -514,37 +649,64 @@ def configure_target(
     apply: bool,
     connect: Callable[[str], object] = connect_ble,
     settle_seconds: float = 2.0,
+    status: Callable[[str], None] | None = None,
 ) -> DeviceAudit:
     """Audit one target and optionally repair and verify its channel policy."""
     interface = None
     try:
+        if status:
+            status("connecting and downloading radio configuration")
         interface = connect(target.address)
         audit = audit_interface(interface, target, desired)
+        if status:
+            status(f"connected as {audit.node_id} ({audit.name})")
         identity_mismatch = bool(
             target.expected_node_id
             and audit.node_id.lower() != target.expected_node_id
         )
         if not apply or not audit.differences or identity_mismatch:
+            if status:
+                if audit.differences:
+                    status(f"audit found {len(audit.differences)} mismatch(es)")
+                else:
+                    status("channel policy matches; no changes needed")
             return audit
 
+        if status:
+            status("writing channel policy")
         changed_indexes = apply_channel_policy(interface.localNode, desired)
         audit.changed = bool(changed_indexes)
+        if status:
+            changed_text = ", ".join(str(index) for index in changed_indexes)
+            status(f"wrote channel slot(s): {changed_text}")
     except Exception as exc:  # noqa: BLE001 - isolate one radio's library failure
+        if status:
+            status(f"failed: {exc}")
         return DeviceAudit(address=target.address, error=str(exc))
     finally:
         close_interface(interface)
 
     if settle_seconds:
+        if status:
+            status(f"waiting {settle_seconds:g}s before read-back")
         time.sleep(settle_seconds)
     interface = None
     try:
+        if status:
+            status("reconnecting to verify saved channels")
         interface = connect(target.address)
         verified = audit_interface(interface, target, desired)
         verified.changed = audit.changed
         if verified.differences:
             verified.error = "channel changes did not pass read-back verification"
+            if status:
+                status("read-back verification failed")
+        elif status:
+            status("read-back verification passed")
         return verified
     except Exception as exc:  # noqa: BLE001 - report failed read-back per radio
+        if status:
+            status(f"verification reconnect failed: {exc}")
         return DeviceAudit(
             address=target.address,
             changed=audit.changed,
@@ -632,6 +794,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.scan:
         try:
+            print("[mesh-ble] scanning for Meshtastic advertisements (10s)", flush=True)
             devices = scan_devices()
         except Exception as exc:  # noqa: BLE001 - BLE backend error boundary
             print(f"error: BLE scan failed: {exc}", file=sys.stderr)
@@ -666,15 +829,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("Mode: APPLY AND VERIFY" if args.apply else "Mode: audit only")
 
     try:
+        print("[mesh-ble] scanning for allowlisted radios (10s)", flush=True)
         discovered = scan_devices()
     except Exception as exc:  # noqa: BLE001 - BLE backend error boundary
         print(f"error: BLE scan failed: {exc}", file=sys.stderr)
         return 1
-    discovered_addresses = {device.address.upper() for device in discovered}
+    discovered_by_address = {device.address.upper(): device for device in discovered}
+    print(
+        f"[mesh-ble] discovered {len(discovered_by_address)} Meshtastic radio(s)",
+        flush=True,
+    )
 
     audits = []
-    for target in targets:
-        if target.address not in discovered_addresses:
+    for index, target in enumerate(targets, start=1):
+        prefix = f"[{index}/{len(targets)}] {target.address}"
+
+        def target_status(message, *, _prefix=prefix):
+            print(f"[mesh-ble] {_prefix}: {message}", flush=True)
+
+        target_status("starting")
+        if target.address not in discovered_by_address:
+            target_status("not found in the scan; skipping")
             audits.append(
                 DeviceAudit(
                     address=target.address,
@@ -685,8 +860,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
         if not args.skip_pairing:
             try:
-                ensure_paired(target.address, pin)
+                ensure_paired(target.address, pin, status=target_status)
             except (ConfigurationError, PairingError) as exc:
+                target_status(f"pairing failed: {exc}")
                 audits.append(
                     DeviceAudit(
                         address=target.address,
@@ -695,7 +871,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
                 continue
-        audits.append(configure_target(target, desired, apply=args.apply))
+        audits.append(
+            configure_target(
+                target,
+                desired,
+                apply=args.apply,
+                status=target_status,
+            )
+        )
 
     print(render_audits(audits))
     if any(audit.error for audit in audits):
