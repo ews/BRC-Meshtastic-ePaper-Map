@@ -191,6 +191,7 @@ Direct invocation is also supported:
 | `-s`, `--screen` | Open frames with the desktop image viewer instead of initializing e-paper. |
 | `-c`, `--calibrate` | Accepted by the CLI; calibration is performed by `make calibrate`. |
 | `--no-friends` | Disable the optional friend/emoji server and stored emoji overrides; Channel 1 visibility is unchanged. |
+| `--weather-alerts`, `--no-weather-alerts` | Enable or disable the integrated daily channel-0 forecast sender; enabled by default. |
 
 The initial base map is sent to the display before radio discovery. A missing
 radio therefore does not leave the panel blank while connection retries run.
@@ -205,17 +206,46 @@ hostname.
 
 ## Daily weather broadcast
 
-`tools/send_daily_weather.py` downloads the BRC morning forecast and broadcasts
-it as one reliable Meshtastic text packet on channel index `0`. It waits for a
-delivery acknowledgment before recording the Pacific-time day as complete. For
-a broadcast, the acknowledgment is normally implicit: the local radio heard a
-neighbor rebroadcast the packet. A timeout or NAK leaves the day incomplete so
-the next cron run can retry.
-
-Run it manually with the project's environment:
+By default, the live map downloads the BRC morning forecast and broadcasts it
+as one reliable Meshtastic text packet on channel index `0`. No extra argument
+is needed:
 
 ```bash
+.venv/bin/python display_map.py
+make run-map
+```
+
+The existing systemd `ExecStart` command enables weather automatically after
+upgrading. To disable it, append `--no-weather-alerts`:
+
+```ini
+ExecStart=/home/ews/projects/kaleidoscope/BRC-Meshtastic-ePaper-Map/.venv/bin/python /home/ews/projects/kaleidoscope/BRC-Meshtastic-ePaper-Map/display_map.py --no-weather-alerts
+```
+
+After upgrading, remove the old weather crontab entry and restart the map
+service; the integrated sender reuses the map's already-open Meshtastic
+connection, avoiding the serial-port lock conflict. Run `sudo systemctl
+daemon-reload` first only if you edited the unit to disable alerts.
+
+The delivery day begins at **9:00 AM America/Los_Angeles**. No message is sent
+before 9 AM. Starting at 9 AM, the map makes at most one attempt in each local
+clock hour until a delivery acknowledgment succeeds. A failed fetch, timeout,
+or NAK remains eligible when the next hour begins. After acknowledgment, no
+more attempts occur until the following day's 9 AM boundary.
+
+For a broadcast, the acknowledgment is normally implicit: the local radio
+heard a neighbor rebroadcast the packet. The map continues tracking incoming
+positions while waiting for the ACK, and any weather failure is logged without
+terminating the map process.
+
+The reusable standalone tool remains available for manual diagnostics, but the
+map service must be stopped first because only one process can own the serial
+device:
+
+```bash
+sudo systemctl stop brc-meshtastic-map.service
 .venv/bin/python tools/send_daily_weather.py
+sudo systemctl start brc-meshtastic-map.service
 ```
 
 After a successful acknowledgment, later runs that day print exactly:
@@ -225,22 +255,14 @@ already sent
 ```
 
 The default state and lock files are `.daily-weather-state.json` and
-`.daily-weather-state.json.lock` beside the project files. State writes are
-atomic, and the lock prevents overlapping cron processes from sending a
-duplicate. Both files are ignored by Git. The default day boundary is
-`America/Los_Angeles`.
-
-An hourly crontab entry using absolute paths is resilient to temporary feed,
-serial-device, or mesh failures:
-
-```cron
-7 * * * * /home/ews/projects/kaleidoscope/BRC-Meshtastic-ePaper-Map/.venv/bin/python /home/ews/projects/kaleidoscope/BRC-Meshtastic-ePaper-Map/tools/send_daily_weather.py
-```
+`.daily-weather-state.json.lock` beside the project files. Atomic state records
+both the last attempted clock hour and acknowledged delivery dates, preventing
+duplicates across process restarts. Both files are ignored by Git.
 
 When auto-detection is ambiguous, add `--device /dev/ttyACM0`. Other useful
-options are `--ack-timeout`, `--fetch-timeout`, `--timezone`, and
-`--state-file`. The source text must fit in one Meshtastic packet; oversized or
-empty responses fail without marking the day complete.
+options for the standalone tool are `--ack-timeout`, `--fetch-timeout`,
+`--timezone`, and `--state-file`. The source text must fit in one Meshtastic
+packet; oversized or empty responses fail without marking the day complete.
 
 ## Display behavior
 
@@ -295,10 +317,13 @@ make mesh-locations
 sudo systemctl start brc-meshtastic-map.service
 ```
 
-The table includes every known node, with `N/A` for devices without a stored
-position. If serial auto-detection is ambiguous, use
-`make mesh-locations MESH_DEVICE=/dev/ttyACM0`. The map can contain additional
-locations restored from SQLite that the radio has since evicted from NodeDB.
+The command prints two tables. The first reads the radio's channel-agnostic
+NodeDB; it does not query or filter channel 1, and shows `N/A` when the radio
+has no stored position for a known identity. The second reads the newest SQLite
+position for every node—the same persistent set restored by the map. If serial
+auto-detection is ambiguous, use
+`make mesh-locations MESH_DEVICE=/dev/ttyACM0`. Differences between the tables
+are expected when the map retained a position that the radio has evicted.
 
 `friends.json` is optional emoji metadata only. An empty file still displays
 all Channel 1 locations. Nodes without an override receive a deterministic
@@ -641,6 +666,7 @@ Relevant targets also accept these Make variables:
 | `CONVERSATIONS_OUTPUT` | `conversations.csv` | Conversation CSV destination. |
 | `HISTORY_DATABASE` | value from `config.yaml` | Optional source database override. |
 | `MESH_DEVICE` | auto-detected | Serial device used by `make mesh-locations`. |
+| `WEATHER_ALERTS` | `1` | Set to `0` to disable integrated alerts for `make run-map`. |
 
 ## Architecture and files
 
@@ -685,7 +711,8 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 | `config.py` | Configuration loading and derived geometry. |
 | `tools/full_mockup.py` | GPS-first populated map preview and moving E6 demo. |
 | `tools/export_history.py` | Read-only SQLite-to-CSV exports. |
-| `tools/send_daily_weather.py` | ACK-confirmed, cron-safe daily channel-0 forecast broadcast. |
+| `tools/show_latest_locations.py` | Side-by-side comparison support for the map's retained SQLite positions. |
+| `tools/send_daily_weather.py` | Shared hourly scheduler, ACK handling, state, and standalone weather diagnostic. |
 | `tools/test_screen.py` | Raspberry Pi E6 hardware test. |
 | `tools/resize_map.py` | Aspect-preserving map resize and placement suggestion. |
 | `tools/generate_map.py` | Developer-only 2026 GIS raster generator. |
@@ -852,7 +879,7 @@ make pytest
 .venv/bin/python -m pytest -q
 ```
 
-The current suite contains 65 tests covering:
+The current suite contains 70 tests covering:
 
 - BRC street, distance-from-Man, POI, and trash-fence address behavior.
 - Projection identity, scaling, rotation, round trips, anchors, and errors.

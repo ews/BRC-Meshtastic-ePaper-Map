@@ -12,6 +12,8 @@ HISTORY_DATABASE_ARG = $(if $(strip $(HISTORY_DATABASE)),--database "$(HISTORY_D
 MESH_DEVICE ?=
 MESH_DEVICE_ARG = $(if $(strip $(MESH_DEVICE)),--port "$(MESH_DEVICE)",)
 MESH_LOCATION_FIELDS := user.longName,user.id,user.shortName,position.latitude,position.longitude,position.altitude,lastHeard,since
+WEATHER_ALERTS ?= 1
+WEATHER_ALERTS_ARG = $(if $(filter 1 true yes on,$(strip $(WEATHER_ALERTS))),--weather-alerts,--no-weather-alerts)
 MESH_HISTORY_OUTPUT ?= mesh-history.csv
 CONVERSATIONS_OUTPUT ?= conversations.csv
 
@@ -68,10 +70,13 @@ calibrate: check-venv  ## launch calibration tool → http://localhost:8050
 run: test  ## alias for test
 
 run-map: check-venv  ## display the live map on ePaper and connect to Meshtastic
-	$(VENV_PYTHON) display_map.py
+	$(VENV_PYTHON) display_map.py $(WEATHER_ALERTS_ARG)
 
-mesh-locations: check-venv  ## show every node and last location known by the radio
+mesh-locations: check-venv  ## compare radio NodeDB with map-retained locations
+	@echo "Radio NodeDB (not channel-specific); N/A means the radio has no stored position."
 	$(MESHTASTIC_CLI) $(MESH_DEVICE_ARG) --nodes --show-fields $(MESH_LOCATION_FIELDS)
+	@echo ""
+	$(VENV_PYTHON) tools/show_latest_locations.py $(HISTORY_DATABASE_ARG)
 
 logs:  ## show the latest systemd map logs
 	journalctl -u brc-meshtastic-map.service -n 100 --no-pager

@@ -28,6 +28,7 @@ from renderer import (
     draw_updated_timestamp,
     draw_upward_pentagon,
 )
+from tools.send_daily_weather import WeatherAlertScheduler
 
 logging = c.logging
 
@@ -216,6 +217,7 @@ def main(args):
     position_callback = None
     old_coords = {}
     needs_refresh = False
+    weather_scheduler = None
 
     try:
         # Put useful content on the panel before mesh discovery/retries can block.
@@ -257,6 +259,12 @@ def main(args):
                 "retaining last-known positions indefinitely",
                 c.location_channel_index,
             )
+            if getattr(args, "weather_alerts", True):
+                weather_scheduler = WeatherAlertScheduler(interface)
+                logging.info(
+                    "daily weather alerts enabled on channel 0; first attempt "
+                    "at 9:00 AM Pacific, then hourly until acknowledged"
+                )
         while True:
             if not args.debug:
                 burners = _cached_burners(
@@ -275,6 +283,23 @@ def main(args):
                     needs_refresh = True
                 else:
                     logging.debug("points are not really moving")
+
+                if weather_scheduler is not None:
+                    try:
+                        weather_result = weather_scheduler.maybe_send()
+                    # A weather failure must never take down the live map.
+                    except Exception as exc:  # noqa: BLE001
+                        logging.warning(
+                            "weather alert attempt failed for this hour: %s",
+                            exc,
+                        )
+                    else:
+                        if weather_result.status == "sent":
+                            logging.info(
+                                "weather alert sent and acknowledged (%s, packet %s)",
+                                weather_result.ack_type,
+                                weather_result.packet_id,
+                            )
 
             if needs_refresh:
                 _display_frame(frame, args.screen, epd)
@@ -296,7 +321,8 @@ def main(args):
         logging.info("shutdown complete")
 
 
-if __name__ == "__main__":
+def build_parser():
+    """Build the command-line parser for the map process."""
     parser = argparse.ArgumentParser(
         prog="Display BRC Map",
         description="Your meshtastic friends on a map",
@@ -320,6 +346,17 @@ if __name__ == "__main__":
         action="store_true",
         help="disable the optional friend/emoji web server and overrides",
     )
+    parser.add_argument(
+        "--weather-alerts",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "send the channel-0 morning forecast after 9 AM Pacific, retrying "
+            "hourly until acknowledged (default: enabled)"
+        ),
+    )
+    return parser
 
-    args = parser.parse_args()
-    main(args)
+
+if __name__ == "__main__":
+    main(build_parser().parse_args())

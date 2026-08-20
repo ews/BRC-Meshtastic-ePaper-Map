@@ -14,10 +14,12 @@ class FakeInterface:
         self.localNode = SimpleNamespace(nodeNum=1234)
         self.response = response
         self.call = None
+        self.calls = []
         self.closed = False
 
     def sendText(self, message, **kwargs):
         self.call = (message, kwargs)
+        self.calls.append(self.call)
         if self.response is not None:
             kwargs["onResponse"](self.response)
         return SimpleNamespace(id=9876)
@@ -61,12 +63,26 @@ def test_send_waits_for_implicit_broadcast_ack(monkeypatch):
     assert interface.closed is True
 
 
+def test_existing_map_interface_is_reused_without_being_closed():
+    interface = FakeInterface(
+        {
+            "from": 1234,
+            "decoded": {"routing": {"errorReason": "NONE"}},
+        }
+    )
+
+    result = weather.send_with_interface(interface, "forecast", ack_timeout=0.01)
+
+    assert result == (9876, "implicit_ack")
+    assert interface.closed is False
+
+
 def test_success_is_recorded_and_second_run_says_already_sent(
     tmp_path, monkeypatch, capsys
 ):
     state_file = tmp_path / "weather-state.json"
     args = _args(state_file)
-    now = datetime(2026, 8, 18, 12, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 18, 17, tzinfo=timezone.utc)
     monkeypatch.setattr(weather, "fetch_forecast", lambda url, timeout: "forecast")
     monkeypatch.setattr(
         weather,
@@ -136,19 +152,81 @@ def test_nak_does_not_count_as_delivery(monkeypatch):
         )
 
 
-def test_failed_send_leaves_day_available_for_next_cron_run(tmp_path, monkeypatch):
+def test_failed_send_waits_until_next_hour_before_retry(tmp_path, monkeypatch):
     state_file = tmp_path / "weather-state.json"
-    args = _args(state_file)
-    now = datetime(2026, 8, 18, 12, tzinfo=timezone.utc)
     monkeypatch.setattr(weather, "fetch_forecast", lambda url, timeout: "forecast")
+    attempts = []
 
-    def fail_send(*args, **kwargs):
+    def fail_send(message):
+        attempts.append(message)
         raise weather.DeliveryError("no acknowledgment")
 
-    monkeypatch.setattr(weather, "send_and_wait", fail_send)
     with pytest.raises(weather.DeliveryError):
-        weather.run(args, now=now)
-    assert not state_file.exists()
+        weather.attempt_daily_weather(
+            fail_send,
+            state_file=state_file,
+            now=datetime(2026, 8, 18, 16, tzinfo=timezone.utc),
+        )
+
+    same_hour = weather.attempt_daily_weather(
+        fail_send,
+        state_file=state_file,
+        now=datetime(2026, 8, 18, 16, 30, tzinfo=timezone.utc),
+    )
+    assert same_hour.status == "already_attempted"
+    assert attempts == ["forecast"]
+
+    with pytest.raises(weather.DeliveryError):
+        weather.attempt_daily_weather(
+            fail_send,
+            state_file=state_file,
+            now=datetime(2026, 8, 18, 17, tzinfo=timezone.utc),
+        )
+    assert attempts == ["forecast", "forecast"]
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["last_attempt"]["slot"] == "2026-08-18T10"
+    assert state["sent_dates"] == {}
+
+
+def test_scheduler_starts_new_delivery_day_at_9_am_pacific(tmp_path, monkeypatch):
+    state_file = tmp_path / "weather-state.json"
+    interface = FakeInterface(
+        {
+            "from": 1234,
+            "decoded": {"routing": {"errorReason": "NONE"}},
+        }
+    )
+    scheduler = weather.WeatherAlertScheduler(
+        interface,
+        state_file=state_file,
+        ack_timeout=0.01,
+    )
+    fetches = []
+
+    def fetch(url, timeout):
+        fetches.append((url, timeout))
+        return "forecast"
+
+    monkeypatch.setattr(weather, "fetch_forecast", fetch)
+
+    before = scheduler.maybe_send(
+        now=datetime(2026, 8, 19, 15, 59, tzinfo=timezone.utc)
+    )
+    sent = scheduler.maybe_send(now=datetime(2026, 8, 19, 16, 0, tzinfo=timezone.utc))
+    same_hour = scheduler.maybe_send(
+        now=datetime(2026, 8, 19, 16, 30, tzinfo=timezone.utc)
+    )
+    after_success = scheduler.maybe_send(
+        now=datetime(2026, 8, 19, 17, 0, tzinfo=timezone.utc)
+    )
+
+    assert before.status == "before_start"
+    assert sent.status == "sent"
+    assert same_hour.status == "not_due"
+    assert after_success.status == "already_sent"
+    assert len(fetches) == 1
+    assert len(interface.calls) == 1
+    assert interface.closed is False
 
 
 def test_invalid_state_fails_closed_without_sending(tmp_path, monkeypatch):
@@ -164,7 +242,7 @@ def test_invalid_state_fails_closed_without_sending(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="cannot read state file"):
         weather.run(
             args,
-            now=datetime(2026, 8, 18, 12, tzinfo=timezone.utc),
+            now=datetime(2026, 8, 18, 17, tzinfo=timezone.utc),
         )
 
 

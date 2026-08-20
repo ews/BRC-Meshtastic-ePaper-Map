@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Send the BRC morning forecast to Meshtastic channel 0 once per day.
+"""Send and schedule the BRC morning forecast on Meshtastic channel 0.
 
 The day is marked complete only after Meshtastic reports an ACK. For a
 broadcast, this is normally an implicit ACK generated after another mesh node
-rebroadcasts the packet. A file lock prevents overlapping cron invocations
-from sending the same day's message concurrently.
+rebroadcasts the packet. The integrated scheduler starts each delivery day at
+9:00 AM Pacific and makes at most one attempt per clock hour until confirmed.
+A file lock prevents overlapping processes from sending concurrently.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import sys
 import tempfile
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -32,12 +34,26 @@ DEFAULT_URL = "https://brcforecast.corbett.vc/api/public/mesh/morning.txt"
 DEFAULT_STATE_FILE = ROOT / ".daily-weather-state.json"
 DEFAULT_TIMEZONE = "America/Los_Angeles"
 CHANNEL_INDEX = 0
-STATE_VERSION = 1
+START_HOUR = 9
+DEFAULT_FETCH_TIMEOUT = 20.0
+DEFAULT_CONNECTION_TIMEOUT = 30.0
+DEFAULT_ACK_TIMEOUT = 60.0
+STATE_VERSION = 2
 MAX_MESSAGE_BYTES = int(mesh_pb2.Constants.DATA_PAYLOAD_LEN)
 
 
 class DeliveryError(RuntimeError):
     """Raised when Meshtastic does not confirm delivery."""
+
+
+@dataclass(frozen=True)
+class WeatherAttemptResult:
+    """Outcome of one scheduler check."""
+
+    status: str
+    day: str | None = None
+    packet_id: int | None = None
+    ack_type: str | None = None
 
 
 class AckTracker:
@@ -129,24 +145,7 @@ def send_and_wait(
     interface = None
     try:
         interface = open_serial_interface(device, connection_timeout)
-        local_node_num = getattr(getattr(interface, "localNode", None), "nodeNum", None)
-        if local_node_num is None:
-            local_node_num = getattr(
-                getattr(interface, "myInfo", None), "my_node_num", None
-            )
-        if local_node_num is None:
-            raise ConnectionError("Meshtastic device did not report its node number")
-
-        tracker = AckTracker(local_node_num)
-        packet = interface.sendText(
-            message,
-            destinationId=BROADCAST_ADDR,
-            wantAck=True,
-            channelIndex=CHANNEL_INDEX,
-            onResponse=tracker.onAckNak,
-        )
-        ack_type = tracker.wait(ack_timeout)
-        return int(packet.id), ack_type
+        return send_with_interface(interface, message, ack_timeout=ack_timeout)
     finally:
         if interface is not None:
             try:
@@ -159,6 +158,30 @@ def send_and_wait(
                 )
 
 
+def send_with_interface(
+    interface, message: str, *, ack_timeout: float
+) -> tuple[int, str]:
+    """Send through an existing Meshtastic connection and wait for its ACK."""
+    local_node_num = getattr(getattr(interface, "localNode", None), "nodeNum", None)
+    if local_node_num is None:
+        local_node_num = getattr(
+            getattr(interface, "myInfo", None), "my_node_num", None
+        )
+    if local_node_num is None:
+        raise ConnectionError("Meshtastic device did not report its node number")
+
+    tracker = AckTracker(local_node_num)
+    packet = interface.sendText(
+        message,
+        destinationId=BROADCAST_ADDR,
+        wantAck=True,
+        channelIndex=CHANNEL_INDEX,
+        onResponse=tracker.onAckNak,
+    )
+    ack_type = tracker.wait(ack_timeout)
+    return int(packet.id), ack_type
+
+
 def load_state(path: Path) -> dict:
     """Load state, failing closed if an existing state file is invalid."""
     if not path.exists():
@@ -168,6 +191,8 @@ def load_state(path: Path) -> dict:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"cannot read state file {path}: {exc}") from exc
     if not isinstance(state, dict) or not isinstance(state.get("sent_dates"), dict):
+        raise TypeError(f"invalid state file {path}; refusing a possible duplicate")
+    if "last_attempt" in state and not isinstance(state["last_attempt"], dict):
         raise TypeError(f"invalid state file {path}; refusing a possible duplicate")
     return state
 
@@ -220,38 +245,151 @@ def positive_float(value: str) -> float:
     return number
 
 
-def run(args, *, now: datetime | None = None) -> int:
-    """Run one cron attempt and return a process exit code."""
-    timezone = ZoneInfo(args.timezone)
-    current = now.astimezone(timezone) if now is not None else datetime.now(timezone)
+def _local_time(now: datetime | None, timezone_name: str) -> datetime:
+    """Return an aware time in the configured delivery timezone."""
+    delivery_timezone = ZoneInfo(timezone_name)
+    return (
+        now.astimezone(delivery_timezone)
+        if now is not None
+        else datetime.now(delivery_timezone)
+    )
+
+
+def _hour_slot(current: datetime) -> str:
+    """Return the persistent identifier for one local clock-hour attempt."""
+    return current.strftime("%Y-%m-%dT%H")
+
+
+def attempt_daily_weather(
+    send_message,
+    *,
+    state_file: Path = DEFAULT_STATE_FILE,
+    url: str = DEFAULT_URL,
+    timezone: str = DEFAULT_TIMEZONE,
+    start_hour: int = START_HOUR,
+    fetch_timeout: float = DEFAULT_FETCH_TIMEOUT,
+    now: datetime | None = None,
+) -> WeatherAttemptResult:
+    """Make one due hourly attempt using a supplied message sender.
+
+    ``send_message`` receives the validated forecast text and returns
+    ``(packet_id, ack_type)``. Recording the hour before network activity keeps
+    restarts and overlapping processes from retrying within the same hour.
+    """
+    current = _local_time(now, timezone)
+    if current.hour < start_hour:
+        return WeatherAttemptResult("before_start")
+
     day = current.date().isoformat()
-    state_path = args.state_file.resolve()
+    slot = _hour_slot(current)
+    state_path = state_file.resolve()
 
     with daily_lock(state_path):
         state = load_state(state_path)
         if day in state["sent_dates"]:
-            print("already sent")
-            return 0
+            return WeatherAttemptResult("already_sent", day=day)
+        if state.get("last_attempt", {}).get("slot") == slot:
+            return WeatherAttemptResult("already_attempted", day=day)
 
-        message = fetch_forecast(args.url, args.fetch_timeout)
-        packet_id, ack_type = send_and_wait(
+        state["version"] = STATE_VERSION
+        state["last_attempt"] = {
+            "day": day,
+            "slot": slot,
+            "attempted_at": current.isoformat(timespec="seconds"),
+        }
+        save_state(state_path, state)
+
+        message = fetch_forecast(url, fetch_timeout)
+        packet_id, ack_type = send_message(message)
+        state["sent_dates"][day] = {
+            "ack": ack_type,
+            "feed_url": url,
+            "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            "packet_id": packet_id,
+            "sent_at": current.isoformat(timespec="seconds"),
+        }
+        save_state(state_path, state)
+        return WeatherAttemptResult(
+            "sent",
+            day=day,
+            packet_id=packet_id,
+            ack_type=ack_type,
+        )
+
+
+class WeatherAlertScheduler:
+    """Hourly scheduler that reuses the map's open Meshtastic interface."""
+
+    def __init__(
+        self,
+        interface,
+        *,
+        state_file: Path = DEFAULT_STATE_FILE,
+        url: str = DEFAULT_URL,
+        timezone: str = DEFAULT_TIMEZONE,
+        start_hour: int = START_HOUR,
+        fetch_timeout: float = DEFAULT_FETCH_TIMEOUT,
+        ack_timeout: float = DEFAULT_ACK_TIMEOUT,
+    ):
+        self.interface = interface
+        self.state_file = Path(state_file)
+        self.url = url
+        self.timezone = timezone
+        self.start_hour = start_hour
+        self.fetch_timeout = fetch_timeout
+        self.ack_timeout = ack_timeout
+        self._last_checked_slot = None
+
+    def maybe_send(self, *, now: datetime | None = None) -> WeatherAttemptResult:
+        """Attempt once when a new eligible local clock hour begins."""
+        current = _local_time(now, self.timezone)
+        if current.hour < self.start_hour:
+            return WeatherAttemptResult("before_start")
+
+        slot = _hour_slot(current)
+        if slot == self._last_checked_slot:
+            return WeatherAttemptResult("not_due", day=current.date().isoformat())
+        self._last_checked_slot = slot
+
+        return attempt_daily_weather(
+            lambda message: send_with_interface(
+                self.interface,
+                message,
+                ack_timeout=self.ack_timeout,
+            ),
+            state_file=self.state_file,
+            url=self.url,
+            timezone=self.timezone,
+            start_hour=self.start_hour,
+            fetch_timeout=self.fetch_timeout,
+            now=current,
+        )
+
+
+def run(args, *, now: datetime | None = None) -> int:
+    """Run one standalone scheduled check and return a process exit code."""
+    result = attempt_daily_weather(
+        lambda message: send_and_wait(
             message,
             device=args.device,
             connection_timeout=args.connection_timeout,
             ack_timeout=args.ack_timeout,
-        )
-
-        state["version"] = STATE_VERSION
-        state["sent_dates"][day] = {
-            "ack": ack_type,
-            "feed_url": args.url,
-            "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
-            "packet_id": packet_id,
-            "sent_at": datetime.now(timezone).isoformat(timespec="seconds"),
-        }
-        save_state(state_path, state)
-        print(f"sent and acknowledged ({ack_type}, packet {packet_id})")
-        return 0
+        ),
+        state_file=args.state_file,
+        url=args.url,
+        timezone=args.timezone,
+        fetch_timeout=args.fetch_timeout,
+        now=now,
+    )
+    if result.status == "sent":
+        print(f"sent and acknowledged ({result.ack_type}, packet {result.packet_id})")
+    elif result.status == "already_sent":
+        print("already sent")
+    elif result.status == "already_attempted":
+        print("already attempted this hour")
+    elif result.status == "before_start":
+        print(f"not due before {START_HOUR}:00 AM")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -274,9 +412,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--device",
         help="serial device path such as /dev/ttyACM0 (default: auto-detect)",
     )
-    parser.add_argument("--fetch-timeout", type=positive_float, default=20.0)
-    parser.add_argument("--connection-timeout", type=positive_float, default=30.0)
-    parser.add_argument("--ack-timeout", type=positive_float, default=60.0)
+    parser.add_argument(
+        "--fetch-timeout", type=positive_float, default=DEFAULT_FETCH_TIMEOUT
+    )
+    parser.add_argument(
+        "--connection-timeout",
+        type=positive_float,
+        default=DEFAULT_CONNECTION_TIMEOUT,
+    )
+    parser.add_argument(
+        "--ack-timeout", type=positive_float, default=DEFAULT_ACK_TIMEOUT
+    )
     return parser
 
 

@@ -3,9 +3,10 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-import display_map
 import pytest
 from PIL import Image, ImageChops, ImageDraw
+
+import display_map
 from renderer import _clock_time, _detail_text, assign_burner_emojis, draw_node_labels
 
 
@@ -101,6 +102,14 @@ def test_position_time_uses_unpadded_12_hour_clock():
         _clock_time(datetime(2026, 8, 19, 0, 5, 9, tzinfo=timezone.utc), seconds=True)
         == "12:05:09 AM"
     )
+
+
+def test_weather_alert_cli_flag_is_explicitly_controllable():
+    parser = display_map.build_parser()
+
+    assert parser.parse_args([]).weather_alerts is True
+    assert parser.parse_args(["--weather-alerts"]).weather_alerts is True
+    assert parser.parse_args(["--no-weather-alerts"]).weather_alerts is False
 
 
 def test_emoji_labels_never_use_requested_yellow():
@@ -245,4 +254,81 @@ def test_persisted_positions_are_drawn_before_mesh_connection(monkeypatch):
         "connect",
         "history-close",
         "sleep",
+    ]
+
+
+def test_integrated_weather_reuses_map_interface_and_failures_do_not_stop_map(
+    monkeypatch,
+):
+    events = []
+
+    class FakeEPD:
+        def getbuffer(self, frame):
+            return frame
+
+        def display(self, frame):
+            events.append("display")
+
+        def sleep(self):
+            events.append("epd-sleep")
+
+    class FakeHistory:
+        def __init__(self, path):
+            pass
+
+        def latest_positions(self):
+            return []
+
+        def record_positions(self, burners):
+            return 0
+
+        def close(self):
+            events.append("history-close")
+
+    class FakeInterface:
+        def __init__(self):
+            self.nodes = {}
+
+        def close(self):
+            events.append("interface-close")
+
+    interface = FakeInterface()
+
+    class FakeScheduler:
+        def __init__(self, scheduler_interface):
+            assert scheduler_interface is interface
+            events.append("scheduler-init")
+
+        def maybe_send(self):
+            events.append("weather-attempt")
+            raise RuntimeError("weather unavailable")
+
+    def stop_after_first_loop(seconds):
+        events.append("sleep")
+        raise RuntimeError("stop test after first loop")
+
+    monkeypatch.setattr(display_map, "_init_epd", FakeEPD)
+    monkeypatch.setattr(display_map, "HistoryStore", FakeHistory)
+    monkeypatch.setattr(display_map, "connect_mesh_serial", lambda: interface)
+    monkeypatch.setattr(display_map, "WeatherAlertScheduler", FakeScheduler)
+    monkeypatch.setattr(display_map.time, "sleep", stop_after_first_loop)
+
+    with pytest.raises(RuntimeError, match="stop test after first loop"):
+        display_map.main(
+            SimpleNamespace(
+                no_friends=True,
+                screen=False,
+                debug=False,
+                weather_alerts=True,
+            )
+        )
+
+    assert events == [
+        "display",
+        "scheduler-init",
+        "weather-attempt",
+        "sleep",
+        "interface-close",
+        "history-close",
+        "epd-sleep",
     ]
