@@ -32,9 +32,7 @@ class ChannelPositionCache:
         try:
             self.channel_index = int(channel_index)
         except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"invalid channel_index {channel_index!r}"
-            ) from exc
+            raise ValueError(f"invalid channel_index {channel_index!r}") from exc
         self._positions = {}
         self._users = {}
         self._logged_other_channel_nodes = set()
@@ -75,9 +73,7 @@ class ChannelPositionCache:
         if packet_channel != self.channel_index:
             sender_key = (packet_channel, node_id or "unknown")
             with self._lock:
-                first_from_sender = (
-                    sender_key not in self._logged_other_channel_nodes
-                )
+                first_from_sender = sender_key not in self._logged_other_channel_nodes
                 self._logged_other_channel_nodes.add(sender_key)
             if first_from_sender:
                 logging.info(
@@ -342,8 +338,7 @@ def _node_identity(node_id, user=None):
     short_name = user.get("shortName") or "unknown"
     hardware = user.get("hwModel") or "unknown"
     return (
-        f"node_id={resolved_id} name={name!r} short={short_name!r} "
-        f"hardware={hardware}"
+        f"node_id={resolved_id} name={name!r} short={short_name!r} hardware={hardware}"
     )
 
 

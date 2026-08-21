@@ -74,6 +74,7 @@ def connect(args):
 def packet_channel(packet) -> int:
     """Return the raw channel number from a packet."""
     try:
+        print packet.get("channel")
         return int(packet.get("channel", 0))
     except (TypeError, ValueError):
         return -1
@@ -110,12 +111,7 @@ def node_name(interface, node_id) -> str:
     """Return a human-readable sender name from the NodeDB."""
     nodes = getattr(interface, "nodes", {}) or {}
     user = nodes.get(node_id, {}).get("user", {}) if node_id else {}
-    return (
-        user.get("longName")
-        or user.get("shortName")
-        or node_id
-        or "unknown"
-    )
+    return user.get("longName") or user.get("shortName") or node_id or "unknown"
 
 
 def on_position(packet, interface=None, **kwargs):

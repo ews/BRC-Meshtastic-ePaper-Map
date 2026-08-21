@@ -11,25 +11,27 @@ from PIL import Image
 # E6/Spectra 6 palette, index order must match epd7in3e.EPD.getbuffer().
 # Index 4 is an unused hardware slot rendered as black.
 E6_COLORS = (
-    (0, 0, 0),        # 0: BLACK
+    (0, 0, 0),  # 0: BLACK
     (255, 255, 255),  # 1: WHITE
-    (255, 255, 0),    # 2: YELLOW
-    (255, 0, 0),      # 3: RED
-    (0, 0, 0),        # 4: (unused -> black)
-    (0, 0, 255),      # 5: BLUE
-    (0, 255, 0),      # 6: GREEN
+    (255, 255, 0),  # 2: YELLOW
+    (255, 0, 0),  # 3: RED
+    (0, 0, 0),  # 4: (unused -> black)
+    (0, 0, 255),  # 5: BLUE
+    (0, 255, 0),  # 6: GREEN
 )
 
-E6_PALETTE = tuple(channel for color in E6_COLORS for channel in color) + (
-    0,
-    0,
-    0,
-) * 249
+E6_PALETTE = (
+    tuple(channel for color in E6_COLORS for channel in color)
+    + (
+        0,
+        0,
+        0,
+    )
+    * 249
+)
 
 
-def resize_to_fit(
-    img: Image.Image, width: int, height: int, fit: str
-) -> Image.Image:
+def resize_to_fit(img: Image.Image, width: int, height: int, fit: str) -> Image.Image:
     """Scale an image to exactly width x height using cover or contain."""
     if img.size == (width, height):
         return img.convert("RGB")

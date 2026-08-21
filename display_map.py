@@ -370,9 +370,7 @@ def main(args):
                     frame, _ = _render_content(
                         base,
                         old_coords,
-                        None
-                        if getattr(args, "no_chat", False)
-                        else old_chat_messages,
+                        None if getattr(args, "no_chat", False) else old_chat_messages,
                     )
                 needs_refresh = True
                 logging.info(
