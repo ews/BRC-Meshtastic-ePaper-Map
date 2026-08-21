@@ -118,8 +118,9 @@ def test_chat_panel_draws_separator_and_recent_message_text():
         location_count=1,
     )
 
-    assert frame.getpixel((20, 37)) == (0, 0, 0)
-    assert ImageChops.difference(frame, blank).crop((0, 43, 480, 60)).getbbox() is not None
+    # list starts at y=8 now; separator = 8 + 1*14 + 3 = 25, message at y=31
+    assert frame.getpixel((20, 25)) == (0, 0, 0)
+    assert ImageChops.difference(frame, blank).crop((0, 31, 480, 48)).getbbox() is not None
 
 
 def test_position_time_uses_unpadded_12_hour_clock():

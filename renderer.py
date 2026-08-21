@@ -66,7 +66,10 @@ def draw_upward_pentagon(draw, center, radius, outline_color=RED, fill_color=Non
         dx = end[0] - start[0]
         dy = end[1] - start[1]
         dist = math.hypot(dx, dy)
-        num_dots = max(1, int(dist / dot_spacing))
+        try:
+            num_dots = max(1, int(dist / dot_spacing))
+        except (ValueError, OverflowError):
+            continue
         for j in range(num_dots):
             x = start[0] + j / num_dots * dx
             y = start[1] + j / num_dots * dy
@@ -99,7 +102,7 @@ def draw_node_labels(burners, draw, colors=None):
     unicode_emoji_font = ImageFont.truetype(EMOJI_FONT_PATH, 11 if dense_list else 13)
     legacy_map_font = ImageFont.truetype(TEXT_FONT_PATH, 18)
     unicode_map_font = ImageFont.truetype(EMOJI_FONT_PATH, 15)
-    text_start_height = 8 if dense_list else 20
+    text_start_height = 8
     text_step = 11 if dense_list else 14
     requested_colors = colors or (RED,)
     colors = tuple(color for color in requested_colors if color in LABEL_COLORS)
@@ -151,7 +154,7 @@ def _message_time(message):
 def draw_chat_messages(draw, messages, location_count=0):
     """Draw a separator and up to three recent channel-chat messages."""
     dense_list = location_count > 10
-    list_start = 8 if dense_list else 20
+    list_start = 8
     list_step = 11 if dense_list else 14
     separator_y = list_start + max(location_count, 1) * list_step + 3
     draw.line((8, separator_y, c.WIDTH - 8, separator_y), fill=BLACK, width=1)
