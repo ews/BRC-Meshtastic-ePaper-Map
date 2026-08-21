@@ -22,8 +22,8 @@ from mesh import (
 )
 from renderer import (
     assign_burner_emojis,
-    draw_dot,
     draw_chat_messages,
+    draw_dot,
     draw_node_labels,
     draw_test_coordinates,
     draw_updated_timestamp,
@@ -191,7 +191,7 @@ def _latest_chat_messages(history, enabled):
 
 def main(args):
     base = _load_map()
-    frame, draw = _new_frame(base)
+    frame, _ = _new_frame(base)
     channel_positions = ChannelPositionCache(c.location_channel_index)
     interface = None
 
@@ -236,6 +236,7 @@ def main(args):
     old_coords = {}
     old_chat_messages = []
     needs_refresh = False
+    last_display_time = time.monotonic()
     weather_scheduler = None
     mesh_alert_scheduler = None
 
@@ -252,13 +253,14 @@ def main(args):
             old_chat_messages = _latest_chat_messages(
                 history, not getattr(args, "no_chat", False)
             )
-            frame, draw = _render_content(
+            frame, _ = _render_content(
                 base,
                 old_coords,
                 None if getattr(args, "no_chat", False) else old_chat_messages,
             )
         logging.info("displaying initial map")
         _display_frame(frame, args.screen, epd)
+        last_display_time = time.monotonic()
 
         if not args.debug:
             interface = connect_mesh_serial()
@@ -312,7 +314,7 @@ def main(args):
                 if locations_changed or chat_changed:
                     old_coords = burners
                     old_chat_messages = chat_messages
-                    frame, draw = _render_content(
+                    frame, _ = _render_content(
                         base,
                         burners,
                         None if getattr(args, "no_chat", False) else chat_messages,
@@ -356,9 +358,32 @@ def main(args):
                                 mesh_alert_result.packet_id,
                             )
 
+            # Forced periodic refresh keeps the bottom-right updated timestamp
+            # current even when positions and chat are unchanged.
+            if (
+                not needs_refresh
+                and time.monotonic() - last_display_time >= c.forced_refresh_seconds
+            ):
+                if args.debug:
+                    frame = _draw_debug_overlay(base)
+                else:
+                    frame, _ = _render_content(
+                        base,
+                        old_coords,
+                        None
+                        if getattr(args, "no_chat", False)
+                        else old_chat_messages,
+                    )
+                needs_refresh = True
+                logging.info(
+                    "forced periodic refresh after %.0fs without changes",
+                    time.monotonic() - last_display_time,
+                )
+
             if needs_refresh:
                 _display_frame(frame, args.screen, epd)
                 needs_refresh = False
+                last_display_time = time.monotonic()
 
             logging.debug("sleeping %ds", c.sleep_seconds)
             time.sleep(c.sleep_seconds)

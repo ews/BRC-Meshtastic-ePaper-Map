@@ -54,6 +54,9 @@ brc:
 min_distance_refresh_ft: 50
 # Zero-based Meshtastic channel index used for incoming camp locations
 location_channel_index: 1
+# Force a screen refresh at least this often, even with no changes,
+# so the bottom-right "updated" timestamp stays current
+forced_refresh_seconds: 600
 
 # --- Optional Emoji Preferences ---
 friends_file: "friends.json"
