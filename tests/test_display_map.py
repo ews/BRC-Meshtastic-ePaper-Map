@@ -7,7 +7,13 @@ import pytest
 from PIL import Image, ImageChops, ImageDraw
 
 import display_map
-from renderer import _clock_time, _detail_text, assign_burner_emojis, draw_node_labels
+from renderer import (
+    _clock_time,
+    _detail_text,
+    assign_burner_emojis,
+    draw_chat_messages,
+    draw_node_labels,
+)
 
 
 def _node(lat=40.783247, lon=-119.207884):
@@ -96,6 +102,26 @@ def test_top_list_entry_uses_12_hour_am_pm_timestamp():
     assert " at " not in detail
 
 
+def test_chat_panel_draws_separator_and_recent_message_text():
+    frame = Image.new("RGB", (480, 800), "white")
+    blank = frame.copy()
+    draw_chat_messages(
+        ImageDraw.Draw(frame),
+        [
+            {
+                "sender": "Alice",
+                "rx_time": 1_786_649_028,
+                "received_at": "2026-08-19T00:00:00Z",
+                "text": "Meet at the Man",
+            }
+        ],
+        location_count=1,
+    )
+
+    assert frame.getpixel((20, 37)) == (0, 0, 0)
+    assert ImageChops.difference(frame, blank).crop((0, 43, 480, 60)).getbbox() is not None
+
+
 def test_position_time_uses_unpadded_12_hour_clock():
     assert _clock_time(datetime(2026, 8, 19, 13, 5, tzinfo=timezone.utc)) == "1:05 PM"
     assert (
@@ -110,6 +136,13 @@ def test_weather_alert_cli_flag_is_explicitly_controllable():
     assert parser.parse_args([]).weather_alerts is True
     assert parser.parse_args(["--weather-alerts"]).weather_alerts is True
     assert parser.parse_args(["--no-weather-alerts"]).weather_alerts is False
+
+
+def test_chat_panel_cli_flag_defaults_on_and_can_be_disabled():
+    parser = display_map.build_parser()
+
+    assert parser.parse_args([]).no_chat is False
+    assert parser.parse_args(["--no-chat"]).no_chat is True
 
 
 def test_emoji_labels_never_use_requested_yellow():
@@ -303,6 +336,15 @@ def test_integrated_weather_reuses_map_interface_and_failures_do_not_stop_map(
             events.append("weather-attempt")
             raise RuntimeError("weather unavailable")
 
+    class FakeLiveScheduler:
+        def __init__(self, scheduler_interface):
+            assert scheduler_interface is interface
+            events.append("live-scheduler-init")
+
+        def maybe_send(self):
+            events.append("live-weather-attempt")
+            raise RuntimeError("live weather unavailable")
+
     def stop_after_first_loop(seconds):
         events.append("sleep")
         raise RuntimeError("stop test after first loop")
@@ -311,6 +353,7 @@ def test_integrated_weather_reuses_map_interface_and_failures_do_not_stop_map(
     monkeypatch.setattr(display_map, "HistoryStore", FakeHistory)
     monkeypatch.setattr(display_map, "connect_mesh_serial", lambda: interface)
     monkeypatch.setattr(display_map, "WeatherAlertScheduler", FakeScheduler)
+    monkeypatch.setattr(display_map, "MeshAlertScheduler", FakeLiveScheduler)
     monkeypatch.setattr(display_map.time, "sleep", stop_after_first_loop)
 
     with pytest.raises(RuntimeError, match="stop test after first loop"):
@@ -326,7 +369,9 @@ def test_integrated_weather_reuses_map_interface_and_failures_do_not_stop_map(
     assert events == [
         "display",
         "scheduler-init",
+        "live-scheduler-init",
         "weather-attempt",
+        "live-weather-attempt",
         "sleep",
         "interface-close",
         "history-close",

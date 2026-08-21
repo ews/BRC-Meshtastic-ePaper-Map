@@ -23,12 +23,13 @@ from mesh import (
 from renderer import (
     assign_burner_emojis,
     draw_dot,
+    draw_chat_messages,
     draw_node_labels,
     draw_test_coordinates,
     draw_updated_timestamp,
     draw_upward_pentagon,
 )
-from tools.send_daily_weather import WeatherAlertScheduler
+from tools.send_daily_weather import MeshAlertScheduler, WeatherAlertScheduler
 
 logging = c.logging
 
@@ -171,6 +172,23 @@ def _cached_burners(channel_positions, interface, friend_store):
     return burners
 
 
+def _render_content(base, burners, chat_messages=None):
+    """Compose the map, location list, and optional channel-chat panel."""
+    frame, draw = _new_frame(base)
+    draw_node_labels(burners, draw)
+    if chat_messages is not None:
+        draw_chat_messages(draw, chat_messages, location_count=len(burners))
+    return frame, draw
+
+
+def _latest_chat_messages(history, enabled):
+    """Read recent chat without requiring it from lightweight test doubles."""
+    if not enabled:
+        return []
+    reader = getattr(history, "latest_messages", None)
+    return reader(c.location_channel_index) if reader is not None else []
+
+
 def main(args):
     base = _load_map()
     frame, draw = _new_frame(base)
@@ -216,21 +234,29 @@ def main(args):
     chat_callback = None
     position_callback = None
     old_coords = {}
+    old_chat_messages = []
     needs_refresh = False
     weather_scheduler = None
+    mesh_alert_scheduler = None
 
     try:
         # Put useful content on the panel before mesh discovery/retries can block.
         if args.debug:
             frame = _draw_debug_overlay(base)
-        elif channel_positions.count():
+        elif channel_positions.count() or not getattr(args, "no_chat", False):
             old_coords = _cached_burners(
                 channel_positions,
                 interface,
                 friend_store,
             )
-            frame, draw = _new_frame(base)
-            draw_node_labels(old_coords, draw)
+            old_chat_messages = _latest_chat_messages(
+                history, not getattr(args, "no_chat", False)
+            )
+            frame, draw = _render_content(
+                base,
+                old_coords,
+                None if getattr(args, "no_chat", False) else old_chat_messages,
+            )
         logging.info("displaying initial map")
         _display_frame(frame, args.screen, epd)
 
@@ -261,9 +287,11 @@ def main(args):
             )
             if getattr(args, "weather_alerts", True):
                 weather_scheduler = WeatherAlertScheduler(interface)
+                mesh_alert_scheduler = MeshAlertScheduler(interface)
                 logging.info(
-                    "daily weather alerts enabled on channel 0; first attempt "
-                    "at 9:00 AM Pacific, then hourly until acknowledged"
+                    "daily weather forecast and live condition alerts enabled on "
+                    "channel 0; forecast starts at 9:00 AM Pacific and live "
+                    "conditions are polled hourly"
                 )
         while True:
             if not args.debug:
@@ -276,10 +304,19 @@ def main(args):
                 if saved:
                     logging.info("saved %d new position reports", saved)
 
-                if not equal_bm_coordinates(burners, old_coords):
+                chat_messages = _latest_chat_messages(
+                    history, not getattr(args, "no_chat", False)
+                )
+                locations_changed = not equal_bm_coordinates(burners, old_coords)
+                chat_changed = chat_messages != old_chat_messages
+                if locations_changed or chat_changed:
                     old_coords = burners
-                    frame, draw = _new_frame(base)
-                    draw_node_labels(burners, draw)
+                    old_chat_messages = chat_messages
+                    frame, draw = _render_content(
+                        base,
+                        burners,
+                        None if getattr(args, "no_chat", False) else chat_messages,
+                    )
                     needs_refresh = True
                 else:
                     logging.debug("points are not really moving")
@@ -299,6 +336,24 @@ def main(args):
                                 "weather alert sent and acknowledged (%s, packet %s)",
                                 weather_result.ack_type,
                                 weather_result.packet_id,
+                            )
+
+                if mesh_alert_scheduler is not None:
+                    try:
+                        mesh_alert_result = mesh_alert_scheduler.maybe_send()
+                    # A live-alert failure must never take down the map.
+                    except Exception as exc:  # noqa: BLE001
+                        logging.warning(
+                            "live weather alert check failed for this hour: %s",
+                            exc,
+                        )
+                    else:
+                        if mesh_alert_result.status == "sent":
+                            logging.info(
+                                "live weather %s sent and acknowledged (%s, packet %s)",
+                                mesh_alert_result.kind or "message",
+                                mesh_alert_result.ack_type,
+                                mesh_alert_result.packet_id,
                             )
 
             if needs_refresh:
@@ -345,6 +400,11 @@ def build_parser():
         "--no-friends",
         action="store_true",
         help="disable the optional friend/emoji web server and overrides",
+    )
+    parser.add_argument(
+        "--no-chat",
+        action="store_true",
+        help="disable the Channel 1 recent-chat panel",
     )
     parser.add_argument(
         "--weather-alerts",

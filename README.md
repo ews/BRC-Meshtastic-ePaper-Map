@@ -191,6 +191,7 @@ Direct invocation is also supported:
 | `-s`, `--screen` | Open frames with the desktop image viewer instead of initializing e-paper. |
 | `-c`, `--calibrate` | Accepted by the CLI; calibration is performed by `make calibrate`. |
 | `--no-friends` | Disable the optional friend/emoji server and stored emoji overrides; Channel 1 visibility is unchanged. |
+| `--no-chat` | Disable the separator and recent Channel 1 chat panel beneath the location list. |
 | `--weather-alerts`, `--no-weather-alerts` | Enable or disable the integrated daily channel-0 forecast sender; enabled by default. |
 
 The initial base map is sent to the display before radio discovery. A missing
@@ -238,6 +239,15 @@ heard a neighbor rebroadcast the packet. The map continues tracking incoming
 positions while waiting for the ACK, and any weather failure is logged without
 terminating the map process.
 
+The same service also polls the live JSON endpoint
+`https://brcforecast.corbett.vc/api/public/mesh` at most once per local clock
+hour. A changed `conditions` value is broadcast on channel 0. Explicit entries
+in the endpoint's `alerts` array take priority and are broadcast once per
+endpoint state. Each live message is identified by a SHA-256 hash in
+`.daily-weather-state.json` and is added to the sent set only after the mesh
+ACK succeeds. Failed or NAKed sends are not marked sent and remain eligible on
+a later hourly check. Only one live message is sent per endpoint poll.
+
 The reusable standalone tool remains available for manual diagnostics, but the
 map service must be stopped first because only one process can own the serial
 device:
@@ -270,6 +280,9 @@ Each rendered frame contains:
 
 - A compact detail list at the top with symbol, Meshtastic long name, BRC
   address, and an `@ h:mm AM/PM` node-position timestamp.
+- A horizontal separator followed by the three newest received text messages
+  on Channel 1, formatted as `Person @ TIME : MESSAGE`. Use `--no-chat` to
+  disable this panel.
 - The city map and dotted trash-fence outline.
 - A colored circular symbol marker at each projected location.
 - `updated: YYYY-MM-DD h:mm:ss AM/PM` in the bottom-right corner, using the Pi's
@@ -829,7 +842,7 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 
 | Path | Responsibility |
 | --- | --- |
-| `display_map.py` | Startup, Channel 1 event wiring, history, refresh decisions, and CLI. |
+| `display_map.py` | Startup, Channel 1 event wiring, history, refresh decisions, weather scheduling, and CLI. |
 | `mesh.py` | Serial/TCP connection, Channel 1 position cache, node extraction, GPS enrichment. |
 | `coordinates.py` | Geodesic distance, BRC address conversion, projection wrapper. |
 | `projection.py` | Forward/inverse anchor-based similarity transform. |
@@ -846,7 +859,7 @@ config.yaml  ──> channel, display, geometry, projection, ports, and file pat
 | `tools/show_latest_locations.py` | Side-by-side comparison support for the map's retained SQLite positions. |
 | `tools/configure_ble_nodes.py` | Safe BLE discovery, channel audit, allowlisted repair, and read-back verification. |
 | `tools/manage_admin_keys.py` | Two-controller public-key capture, fleet audit, enrollment, and verification. |
-| `tools/send_daily_weather.py` | Shared hourly scheduler, ACK handling, state, and standalone weather diagnostic. |
+| `tools/send_daily_weather.py` | Daily forecast and live-condition schedulers, channel-0 ACK handling, persistent deduplication state, and standalone weather diagnostic. |
 | `tools/test_screen.py` | Raspberry Pi E6 hardware test. |
 | `tools/resize_map.py` | Aspect-preserving map resize and placement suggestion. |
 | `tools/generate_map.py` | Developer-only 2026 GIS raster generator. |

@@ -175,6 +175,40 @@ class HistoryStore:
             )
         return records
 
+    def latest_messages(self, channel: int, limit: int = 3) -> list[dict]:
+        """Return the newest messages for a channel, oldest first."""
+        try:
+            channel = int(channel)
+            limit = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("channel and limit must be integers") from exc
+        if limit <= 0:
+            return []
+
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT sender_name, sender_id, rx_time, received_at, text
+                FROM messages
+                WHERE channel = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (channel, limit),
+            ).fetchall()
+
+        messages = [
+            {
+                "sender": sender_name or sender_id or "Unknown",
+                "rx_time": rx_time,
+                "received_at": received_at,
+                "text": text,
+            }
+            for sender_name, sender_id, rx_time, received_at, text in rows
+        ]
+        messages.reverse()
+        return messages
+
     def close(self) -> None:
         """Flush and close the database."""
         with self._lock:

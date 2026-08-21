@@ -130,6 +130,48 @@ def draw_node_labels(burners, draw, colors=None):
     return draw
 
 
+def _message_time(message):
+    """Format a chat timestamp using packet time, then database receipt time."""
+    timestamp = message.get("rx_time")
+    try:
+        if timestamp:
+            value = datetime.fromtimestamp(float(timestamp), timezone.utc).astimezone()
+            return _clock_time(value)
+    except (TypeError, ValueError, OSError, OverflowError):
+        pass
+
+    received_at = message.get("received_at", "")
+    try:
+        value = datetime.fromisoformat(str(received_at).replace("Z", "+00:00"))
+        return _clock_time(value.astimezone())
+    except (TypeError, ValueError, OSError, OverflowError):
+        return "--:--"
+
+
+def draw_chat_messages(draw, messages, location_count=0):
+    """Draw a separator and up to three recent channel-chat messages."""
+    dense_list = location_count > 10
+    list_start = 8 if dense_list else 20
+    list_step = 11 if dense_list else 14
+    separator_y = list_start + max(location_count, 1) * list_step + 3
+    draw.line((8, separator_y, c.WIDTH - 8, separator_y), fill=BLACK, width=1)
+
+    font = ImageFont.truetype(TEXT_FONT_PATH, 10)
+    y = separator_y + 6
+    max_width = c.WIDTH - 16
+    for message in messages[-3:]:
+        label = (
+            f"{message.get('sender') or 'Unknown'} @ {_message_time(message)} : "
+            f"{' '.join(str(message.get('text', '')).split())}"
+        )
+        while len(label) > 1 and draw.textlength(label, font=font) > max_width:
+            label = label[:-2].rstrip() + "…"
+        draw.text((8, y), label, font=font, fill=BLACK)
+        y += 13
+
+    return draw
+
+
 def draw_updated_timestamp(draw, timestamp=None):
     """Draw the frame's local update time in the bottom-right corner."""
     updated_at = (

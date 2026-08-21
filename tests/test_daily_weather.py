@@ -258,3 +258,156 @@ def test_invalid_forecast_content_is_rejected(monkeypatch, content):
 
     with pytest.raises(ValueError):
         weather.fetch_forecast(weather.DEFAULT_URL, timeout=1)
+
+
+def test_fetch_mesh_status_validates_and_normalizes_json(monkeypatch):
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "state": " b62 ",
+            "conditions": " BRC 95F ",
+            "alerts": [" High wind ", " Dust "],
+        },
+    )
+    monkeypatch.setattr(weather.requests, "get", lambda *args, **kwargs: response)
+
+    assert weather.fetch_mesh_status("https://example.test/mesh", 1) == weather.MeshStatus(
+        state="b62",
+        conditions="BRC 95F",
+        alerts=("High wind", "Dust"),
+    )
+
+
+def test_live_conditions_are_sent_once_after_ack(tmp_path, monkeypatch):
+    state_file = tmp_path / "weather-state.json"
+    status = weather.MeshStatus(
+        state="b62",
+        conditions="BRC 95F wind SSW5g11mph",
+        alerts=(),
+    )
+    monkeypatch.setattr(weather, "fetch_mesh_status", lambda url, timeout: status)
+    messages = []
+
+    def send(message):
+        messages.append(message)
+        return 101, "implicit_ack"
+
+    first = weather.attempt_mesh_alert(
+        send,
+        state_file=state_file,
+        now=datetime(2026, 8, 20, 16, tzinfo=timezone.utc),
+    )
+    second = weather.attempt_mesh_alert(
+        send,
+        state_file=state_file,
+        now=datetime(2026, 8, 20, 17, tzinfo=timezone.utc),
+    )
+
+    assert first.status == "sent"
+    assert first.kind == "conditions"
+    assert second.status == "already_sent"
+    assert messages == ["CONDITIONS: BRC 95F wind SSW5g11mph"]
+
+
+def test_changed_conditions_get_a_new_message(tmp_path, monkeypatch):
+    state_file = tmp_path / "weather-state.json"
+    statuses = iter(
+        [
+            weather.MeshStatus("a", "BRC 95F", ()),
+            weather.MeshStatus("b", "BRC 96F", ()),
+        ]
+    )
+    monkeypatch.setattr(weather, "fetch_mesh_status", lambda url, timeout: next(statuses))
+    messages = []
+
+    def send(message):
+        messages.append(message)
+        return len(messages), "explicit_ack"
+
+    first = weather.attempt_mesh_alert(
+        send,
+        state_file=state_file,
+        now=datetime(2026, 8, 20, 16, tzinfo=timezone.utc),
+    )
+    second = weather.attempt_mesh_alert(
+        send,
+        state_file=state_file,
+        now=datetime(2026, 8, 20, 17, tzinfo=timezone.utc),
+    )
+
+    assert (first.status, second.status) == ("sent", "sent")
+    assert messages == ["CONDITIONS: BRC 95F", "CONDITIONS: BRC 96F"]
+
+
+def test_live_alert_is_sent_once_and_alert_state_distinguishes_occurrences(
+    tmp_path, monkeypatch
+):
+    state_file = tmp_path / "weather-state.json"
+    statuses = iter(
+        [
+            weather.MeshStatus("event-1", "BRC 95F", ("High wind",)),
+            weather.MeshStatus("event-1", "BRC 95F", ("High wind",)),
+            weather.MeshStatus("event-2", "BRC 95F", ("High wind",)),
+        ]
+    )
+    monkeypatch.setattr(weather, "fetch_mesh_status", lambda url, timeout: next(statuses))
+    messages = []
+
+    def send(message):
+        messages.append(message)
+        return len(messages), "implicit_ack"
+
+    first = weather.attempt_mesh_alert(send, state_file=state_file)
+    duplicate = weather.attempt_mesh_alert(
+        send,
+        state_file=state_file,
+        now=datetime(2026, 8, 20, 17, tzinfo=timezone.utc),
+    )
+    new_event = weather.attempt_mesh_alert(
+        send,
+        state_file=state_file,
+        now=datetime(2026, 8, 20, 18, tzinfo=timezone.utc),
+    )
+
+    assert first.kind == "alert"
+    assert duplicate.status == "already_sent"
+    assert new_event.status == "sent"
+    assert messages == ["ALERT: High wind", "ALERT: High wind"]
+
+
+def test_live_alert_is_not_marked_sent_without_ack_and_retries_next_hour(
+    tmp_path, monkeypatch
+):
+    state_file = tmp_path / "weather-state.json"
+    status = weather.MeshStatus("event-1", "BRC 95F", ("High wind",))
+    monkeypatch.setattr(weather, "fetch_mesh_status", lambda url, timeout: status)
+    attempts = []
+
+    def fail_send(message):
+        attempts.append(message)
+        raise weather.DeliveryError("no acknowledgment")
+
+    with pytest.raises(weather.DeliveryError):
+        weather.attempt_mesh_alert(
+            fail_send,
+            state_file=state_file,
+            now=datetime(2026, 8, 20, 16, tzinfo=timezone.utc),
+        )
+
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["sent_hashes"] == {}
+
+    def succeed_send(message):
+        attempts.append(message)
+        return 22, "implicit_ack"
+
+    result = weather.attempt_mesh_alert(
+        succeed_send,
+        state_file=state_file,
+        now=datetime(2026, 8, 20, 17, tzinfo=timezone.utc),
+    )
+
+    assert result.status == "sent"
+    assert attempts == ["ALERT: High wind", "ALERT: High wind"]
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert len(state["sent_hashes"]) == 1

@@ -17,3 +17,6 @@ requirements-laptop.txt
 *.egg-info/
 dist/
 build/
+
+# Local LLM takeover notes; may contain workspace-specific context.
+DEEPSEEK_HANDOFF.md

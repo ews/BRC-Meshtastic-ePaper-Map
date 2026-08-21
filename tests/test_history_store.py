@@ -94,6 +94,27 @@ def test_received_chat_is_persisted_once(tmp_path):
     assert row == ("42", "!abcd1234", "Alice", "^all", 2, "Meet at the Man")
 
 
+def test_latest_messages_filters_channel_and_returns_oldest_first(tmp_path):
+    store = HistoryStore(tmp_path / "history.sqlite3")
+    for packet_id, channel, text in ((1, 1, "first"), (2, 0, "ignore"), (3, 1, "last")):
+        assert store.record_message(
+            {
+                "id": packet_id,
+                "fromId": f"!abcd{packet_id:04x}",
+                "rxTime": packet_id,
+                "channel": channel,
+                "decoded": {"text": text},
+            },
+            f"Person {packet_id}",
+        )
+
+    messages = store.latest_messages(1)
+    store.close()
+
+    assert [message["text"] for message in messages] == ["first", "last"]
+    assert [message["sender"] for message in messages] == ["Person 1", "Person 3"]
+
+
 def test_sender_name_comes_from_mesh_node_database():
     interface = SimpleNamespace(nodes={"!abcd1234": {"user": {"longName": "Alice"}}})
     assert sender_name_for_packet({"fromId": "!abcd1234"}, interface) == "Alice"

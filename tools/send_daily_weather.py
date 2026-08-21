@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send and schedule the BRC morning forecast on Meshtastic channel 0.
+"""Send and schedule BRC weather messages on Meshtastic channel 0.
 
 The day is marked complete only after Meshtastic reports an ACK. For a
 broadcast, this is normally an implicit ACK generated after another mesh node
@@ -31,6 +31,7 @@ from meshtastic.serial_interface import SerialInterface
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_URL = "https://brcforecast.corbett.vc/api/public/mesh/morning.txt"
+DEFAULT_MESH_STATUS_URL = "https://brcforecast.corbett.vc/api/public/mesh"
 DEFAULT_STATE_FILE = ROOT / ".daily-weather-state.json"
 DEFAULT_TIMEZONE = "America/Los_Angeles"
 CHANNEL_INDEX = 0
@@ -54,6 +55,16 @@ class WeatherAttemptResult:
     day: str | None = None
     packet_id: int | None = None
     ack_type: str | None = None
+    kind: str | None = None
+
+
+@dataclass(frozen=True)
+class MeshStatus:
+    """Validated response from the live BRC mesh forecast endpoint."""
+
+    state: str
+    conditions: str
+    alerts: tuple[str, ...]
 
 
 class AckTracker:
@@ -122,6 +133,41 @@ def fetch_forecast(url: str, timeout: float) -> str:
     return message
 
 
+def fetch_mesh_status(url: str, timeout: float) -> MeshStatus:
+    """Fetch the live conditions and alert lines from the JSON endpoint."""
+    response = requests.get(
+        url,
+        timeout=(min(timeout, 10), timeout),
+        headers={"User-Agent": "BRC-Meshtastic-Live-Weather/1.0"},
+    )
+    response.raise_for_status()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ValueError("mesh forecast response is not valid JSON") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("mesh forecast response must be a JSON object")
+    state = payload.get("state")
+    conditions = payload.get("conditions")
+    alerts = payload.get("alerts", [])
+    if not isinstance(state, str) or not state.strip():
+        raise ValueError("mesh forecast response has no state")
+    if not isinstance(conditions, str) or not conditions.strip():
+        raise ValueError("mesh forecast response has no conditions text")
+    if not isinstance(alerts, list) or not all(
+        isinstance(alert, str) and alert.strip() for alert in alerts
+    ):
+        raise ValueError("mesh forecast response has invalid alerts")
+
+    messages = tuple(alert.strip() for alert in alerts)
+    return MeshStatus(
+        state=state.strip(),
+        conditions=conditions.strip(),
+        alerts=messages,
+    )
+
+
 def open_serial_interface(device: str | None, timeout: float):
     """Open the requested or automatically detected serial Meshtastic radio."""
     interface = SerialInterface(
@@ -185,15 +231,22 @@ def send_with_interface(
 def load_state(path: Path) -> dict:
     """Load state, failing closed if an existing state file is invalid."""
     if not path.exists():
-        return {"version": STATE_VERSION, "sent_dates": {}}
+        return {"version": STATE_VERSION, "sent_dates": {}, "sent_hashes": {}}
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"cannot read state file {path}: {exc}") from exc
     if not isinstance(state, dict) or not isinstance(state.get("sent_dates"), dict):
         raise TypeError(f"invalid state file {path}; refusing a possible duplicate")
+    if "sent_hashes" in state and not isinstance(state["sent_hashes"], dict):
+        raise TypeError(f"invalid sent_hashes in state file {path}")
+    state.setdefault("sent_hashes", {})
     if "last_attempt" in state and not isinstance(state["last_attempt"], dict):
         raise TypeError(f"invalid state file {path}; refusing a possible duplicate")
+    if "last_alert_attempt" in state and not isinstance(
+        state["last_alert_attempt"], dict
+    ):
+        raise TypeError(f"invalid last_alert_attempt in state file {path}")
     return state
 
 
@@ -361,6 +414,149 @@ class WeatherAlertScheduler:
             url=self.url,
             timezone=self.timezone,
             start_hour=self.start_hour,
+            fetch_timeout=self.fetch_timeout,
+            now=current,
+        )
+
+
+def _alert_hash(kind: str, message: str) -> str:
+    """Return a stable, namespaced identity for one broadcast message."""
+    identity = f"{kind}\0{message}".encode("utf-8")
+    return hashlib.sha256(identity).hexdigest()
+
+
+def attempt_mesh_alert(
+    send_message,
+    *,
+    state_file: Path = DEFAULT_STATE_FILE,
+    url: str = DEFAULT_MESH_STATUS_URL,
+    timezone: str = DEFAULT_TIMEZONE,
+    fetch_timeout: float = DEFAULT_FETCH_TIMEOUT,
+    now: datetime | None = None,
+) -> WeatherAttemptResult:
+    """Send one new live condition/alert message, only after ACK.
+
+    The endpoint's explicit alert lines take priority. If there are no new
+    alert lines, a changed conditions string is sent. A hash is written only
+    after ``send_message`` returns a successful ACK, so a timeout or NAK can
+    be retried on a later polling hour.
+    """
+    current = _local_time(now, timezone)
+    state_path = state_file.resolve()
+
+    with daily_lock(state_path):
+        state = load_state(state_path)
+        status = fetch_mesh_status(url, fetch_timeout)
+        # Send one logical broadcast per poll. Explicit alert lines take
+        # priority; the conditions snapshot is sent when no alert is active.
+        # This prevents one endpoint response from producing two channel-0
+        # packets and keeps the alert itself the only message for that state.
+        if status.alerts:
+            candidates = [
+                (
+                    "alert",
+                    "ALERT: " + "\n".join(status.alerts),
+                    status.state,
+                )
+            ]
+        else:
+            candidates = [
+                ("conditions", "CONDITIONS: " + status.conditions, status.state)
+            ]
+
+        sent_hashes = state["sent_hashes"]
+        candidate = None
+        for kind, message, event_state in candidates:
+            message_hash = _alert_hash(kind, event_state + "\0" + message)
+            if message_hash not in sent_hashes:
+                candidate = (kind, message, message_hash)
+                break
+
+        if candidate is None:
+            return WeatherAttemptResult("already_sent", day=current.date().isoformat())
+
+        kind, message, message_hash = candidate
+        message_bytes = len(message.encode("utf-8"))
+        if message_bytes > MAX_MESSAGE_BYTES:
+            raise ValueError(
+                f"live weather {kind} alert is {message_bytes} bytes; "
+                f"Meshtastic permits {MAX_MESSAGE_BYTES} bytes in one packet"
+            )
+        slot = _hour_slot(current)
+        last_attempt = state.get("last_alert_attempt", {})
+        if last_attempt.get("hash") == message_hash and last_attempt.get("slot") == slot:
+            return WeatherAttemptResult(
+                "already_attempted", day=current.date().isoformat()
+            )
+
+        # Persist the attempt guard before network activity. This prevents a
+        # restart or a tight polling loop from sending the same unacknowledged
+        # message repeatedly within one hour. It is deliberately separate from
+        # sent_hashes: only a confirmed ACK makes a message sent.
+        state["last_alert_attempt"] = {
+            "hash": message_hash,
+            "kind": kind,
+            "slot": slot,
+            "attempted_at": current.isoformat(timespec="seconds"),
+        }
+        save_state(state_path, state)
+
+        packet_id, ack_type = send_message(message)
+        sent_hashes[message_hash] = {
+            "kind": kind,
+            "message": message,
+            "packet_id": packet_id,
+            "ack": ack_type,
+            "sent_at": current.isoformat(timespec="seconds"),
+        }
+        save_state(state_path, state)
+        return WeatherAttemptResult(
+            "sent",
+            day=current.date().isoformat(),
+            packet_id=packet_id,
+            ack_type=ack_type,
+            kind=kind,
+        )
+
+
+class MeshAlertScheduler:
+    """Poll live conditions at most hourly and send each message once."""
+
+    def __init__(
+        self,
+        interface,
+        *,
+        state_file: Path = DEFAULT_STATE_FILE,
+        url: str = DEFAULT_MESH_STATUS_URL,
+        timezone: str = DEFAULT_TIMEZONE,
+        fetch_timeout: float = DEFAULT_FETCH_TIMEOUT,
+        ack_timeout: float = DEFAULT_ACK_TIMEOUT,
+    ):
+        self.interface = interface
+        self.state_file = Path(state_file)
+        self.url = url
+        self.timezone = timezone
+        self.fetch_timeout = fetch_timeout
+        self.ack_timeout = ack_timeout
+        self._last_checked_slot = None
+
+    def maybe_send(self, *, now: datetime | None = None) -> WeatherAttemptResult:
+        """Poll once per local hour; deduplication is persisted in state."""
+        current = _local_time(now, self.timezone)
+        slot = _hour_slot(current)
+        if slot == self._last_checked_slot:
+            return WeatherAttemptResult("not_due", day=current.date().isoformat())
+        self._last_checked_slot = slot
+
+        return attempt_mesh_alert(
+            lambda message: send_with_interface(
+                self.interface,
+                message,
+                ack_timeout=self.ack_timeout,
+            ),
+            state_file=self.state_file,
+            url=self.url,
+            timezone=self.timezone,
             fetch_timeout=self.fetch_timeout,
             now=current,
         )
