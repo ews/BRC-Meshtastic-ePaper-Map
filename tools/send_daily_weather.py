@@ -88,9 +88,7 @@ class AckTracker:
         try:
             self.local_node_num = int(local_node_num)
         except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"invalid local node number {local_node_num!r}"
-            ) from exc
+            raise ValueError(f"invalid local node number {local_node_num!r}") from exc
         self.ack_type: str | None = None
         self.error_reason: str | None = None
         self._event = threading.Event()
@@ -538,7 +536,10 @@ def attempt_mesh_alert(
             )
         slot = _interval_slot(current, poll_interval_seconds)
         last_attempt = state.get("last_alert_attempt", {})
-        if last_attempt.get("hash") == message_hash and last_attempt.get("slot") == slot:
+        if (
+            last_attempt.get("hash") == message_hash
+            and last_attempt.get("slot") == slot
+        ):
             return WeatherAttemptResult(
                 "already_attempted", day=current.date().isoformat()
             )

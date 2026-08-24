@@ -55,9 +55,7 @@ def _distance_bands(rng, count):
     inner_radius = c.distance_man_esplanade
     for street, width in zip(c.STREET_NAMES, c.DISTANCE_STREETS):
         margin = min(STREET_EDGE_MARGIN_FT, width * 0.2)
-        streets.append(
-            (street, inner_radius + margin, inner_radius + width - margin)
-        )
+        streets.append((street, inner_radius + margin, inner_radius + width - margin))
         inner_radius += width
 
     all_zones = [near_man, beyond_city, trash_fence, *streets]
@@ -106,9 +104,7 @@ def _inside_trash_fence(point):
     vertices = []
     for index in range(5):
         angle = math.radians(90 - index * 72)
-        vertices.append(
-            (cx + radius * math.cos(angle), cy - radius * math.sin(angle))
-        )
+        vertices.append((cx + radius * math.cos(angle), cy - radius * math.sin(angle)))
 
     x, y = point
     inside = False

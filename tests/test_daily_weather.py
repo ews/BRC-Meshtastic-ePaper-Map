@@ -272,7 +272,9 @@ def test_fetch_mesh_status_validates_and_normalizes_json(monkeypatch):
     )
     monkeypatch.setattr(weather.requests, "get", lambda *args, **kwargs: response)
 
-    assert weather.fetch_mesh_status("https://example.test/mesh", 1) == weather.MeshStatus(
+    assert weather.fetch_mesh_status(
+        "https://example.test/mesh", 1
+    ) == weather.MeshStatus(
         state="b62",
         conditionsState="abc123",
         conditions="BRC 95F",
@@ -336,7 +338,9 @@ def test_conditions_broadcast_when_conditions_state_changes(tmp_path, monkeypatc
             weather.MeshStatus("same-state", "cond-2", "BRC 95F", ()),
         ]
     )
-    monkeypatch.setattr(weather, "fetch_mesh_status", lambda url, timeout: next(statuses))
+    monkeypatch.setattr(
+        weather, "fetch_mesh_status", lambda url, timeout: next(statuses)
+    )
     messages = []
 
     def send(message):
@@ -377,7 +381,9 @@ def test_state_change_without_alerts_does_not_rebroadcast_conditions(
             weather.MeshStatus("state-2", "cond-1", "BRC 95F", ()),
         ]
     )
-    monkeypatch.setattr(weather, "fetch_mesh_status", lambda url, timeout: next(statuses))
+    monkeypatch.setattr(
+        weather, "fetch_mesh_status", lambda url, timeout: next(statuses)
+    )
     messages = []
 
     def send(message):
@@ -410,7 +416,9 @@ def test_live_alert_is_sent_once_and_alert_state_distinguishes_occurrences(
             weather.MeshStatus("event-2", "cond-1", "BRC 95F", ("High wind",)),
         ]
     )
-    monkeypatch.setattr(weather, "fetch_mesh_status", lambda url, timeout: next(statuses))
+    monkeypatch.setattr(
+        weather, "fetch_mesh_status", lambda url, timeout: next(statuses)
+    )
     messages = []
 
     def send(message):
