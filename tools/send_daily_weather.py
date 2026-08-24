@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Send and schedule BRC weather messages on Meshtastic channel 0.
 
-The day is marked complete only after Meshtastic reports an ACK. For a
-broadcast, this is normally an implicit ACK generated after another mesh node
-rebroadcasts the packet. The integrated scheduler starts each delivery day at
-9:00 AM Pacific and makes at most one attempt per clock hour until confirmed.
-A file lock prevents overlapping processes from sending concurrently.
+Two separate flows share this module:
+
+1. Daily forecast — plain text from ``morning.txt``, scheduled at 9:00 AM
+   Pacific with at most one attempt per clock hour until confirmed.
+2. Live conditions/alerts — JSON from ``/api/public/mesh`` with fields
+   ``state`` (alerts trigger), ``conditionsState`` (conditions trigger),
+   ``conditions``, and ``alerts``. Polled every two minutes; a broadcast is
+   sent when ``conditionsState`` changes or alert lines appear for a new
+   ``state``, and marked sent only after Meshtastic reports an ACK.
+
+For a broadcast, an ACK is normally an implicit ACK generated after another
+mesh node rebroadcasts the packet. A file lock prevents overlapping
+processes from sending concurrently.
 """
 
 from __future__ import annotations
@@ -39,8 +47,9 @@ START_HOUR = 9
 DEFAULT_FETCH_TIMEOUT = 20.0
 DEFAULT_CONNECTION_TIMEOUT = 30.0
 DEFAULT_ACK_TIMEOUT = 60.0
+DEFAULT_POLL_INTERVAL_SECONDS = 120
 STATE_VERSION = 2
-MAX_MESSAGE_BYTES = int(mesh_pb2.Constants.DATA_PAYLOAD_LEN)
+MAX_MESSAGE_BYTES = mesh_pb2.Constants.DATA_PAYLOAD_LEN
 
 
 class DeliveryError(RuntimeError):
@@ -60,9 +69,14 @@ class WeatherAttemptResult:
 
 @dataclass(frozen=True)
 class MeshStatus:
-    """Validated response from the live BRC mesh forecast endpoint."""
+    """Validated response from the live BRC mesh forecast endpoint.
+
+    ``state`` changes trigger alert broadcasts; ``conditionsState`` changes
+    trigger conditions broadcasts.
+    """
 
     state: str
+    conditionsState: str
     conditions: str
     alerts: tuple[str, ...]
 
@@ -71,7 +85,12 @@ class AckTracker:
     """Capture the ACK/NAK callback for one outgoing packet."""
 
     def __init__(self, local_node_num: int):
-        self.local_node_num = int(local_node_num)
+        try:
+            self.local_node_num = int(local_node_num)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid local node number {local_node_num!r}"
+            ) from exc
         self.ack_type: str | None = None
         self.error_reason: str | None = None
         self._event = threading.Event()
@@ -147,12 +166,15 @@ def fetch_mesh_status(url: str, timeout: float) -> MeshStatus:
         raise ValueError("mesh forecast response is not valid JSON") from exc
 
     if not isinstance(payload, dict):
-        raise ValueError("mesh forecast response must be a JSON object")
+        raise TypeError("mesh forecast response must be a JSON object")
     state = payload.get("state")
+    conditions_state = payload.get("conditionsState")
     conditions = payload.get("conditions")
     alerts = payload.get("alerts", [])
     if not isinstance(state, str) or not state.strip():
         raise ValueError("mesh forecast response has no state")
+    if not isinstance(conditions_state, str) or not conditions_state.strip():
+        raise ValueError("mesh forecast response has no conditionsState")
     if not isinstance(conditions, str) or not conditions.strip():
         raise ValueError("mesh forecast response has no conditions text")
     if not isinstance(alerts, list) or not all(
@@ -163,6 +185,7 @@ def fetch_mesh_status(url: str, timeout: float) -> MeshStatus:
     messages = tuple(alert.strip() for alert in alerts)
     return MeshStatus(
         state=state.strip(),
+        conditionsState=conditions_state.strip(),
         conditions=conditions.strip(),
         alerts=messages,
     )
@@ -170,10 +193,14 @@ def fetch_mesh_status(url: str, timeout: float) -> MeshStatus:
 
 def open_serial_interface(device: str | None, timeout: float):
     """Open the requested or automatically detected serial Meshtastic radio."""
+    try:
+        interface_timeout = max(1, int(timeout))
+    except (TypeError, ValueError):
+        interface_timeout = 1
     interface = SerialInterface(
         devPath=device,
         noNodes=True,
-        timeout=max(1, int(timeout)),
+        timeout=interface_timeout,
     )
     if getattr(interface, "myInfo", None) is None:
         raise ConnectionError("no initialized serial Meshtastic device found")
@@ -225,7 +252,10 @@ def send_with_interface(
         onResponse=tracker.onAckNak,
     )
     ack_type = tracker.wait(ack_timeout)
-    return int(packet.id), ack_type
+    try:
+        return int(packet.id), ack_type
+    except (TypeError, ValueError) as exc:
+        raise DeliveryError(f"packet id {packet.id!r} is not an integer") from exc
 
 
 def load_state(path: Path) -> dict:
@@ -292,7 +322,10 @@ def daily_lock(state_path: Path):
 
 def positive_float(value: str) -> float:
     """Parse a strictly positive command-line duration."""
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(f"invalid number: {value!r}") from exc
     if number <= 0:
         raise argparse.ArgumentTypeError("must be greater than zero")
     return number
@@ -311,6 +344,21 @@ def _local_time(now: datetime | None, timezone_name: str) -> datetime:
 def _hour_slot(current: datetime) -> str:
     """Return the persistent identifier for one local clock-hour attempt."""
     return current.strftime("%Y-%m-%dT%H")
+
+
+def _interval_slot(current: datetime, seconds: int) -> str:
+    """Return the persistent identifier for one fixed polling bucket."""
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid interval seconds {seconds!r}") from exc
+    if seconds <= 0:
+        raise ValueError("interval seconds must be positive")
+    try:
+        epoch = int(current.timestamp())
+    except (TypeError, ValueError, OverflowError, OSError) as exc:
+        raise ValueError("timestamp is not a finite epoch") from exc
+    return str(epoch // seconds)
 
 
 def attempt_daily_weather(
@@ -421,7 +469,7 @@ class WeatherAlertScheduler:
 
 def _alert_hash(kind: str, message: str) -> str:
     """Return a stable, namespaced identity for one broadcast message."""
-    identity = f"{kind}\0{message}".encode("utf-8")
+    identity = f"{kind}\0{message}".encode()
     return hashlib.sha256(identity).hexdigest()
 
 
@@ -432,14 +480,16 @@ def attempt_mesh_alert(
     url: str = DEFAULT_MESH_STATUS_URL,
     timezone: str = DEFAULT_TIMEZONE,
     fetch_timeout: float = DEFAULT_FETCH_TIMEOUT,
+    poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS,
     now: datetime | None = None,
 ) -> WeatherAttemptResult:
     """Send one new live condition/alert message, only after ACK.
 
-    The endpoint's explicit alert lines take priority. If there are no new
-    alert lines, a changed conditions string is sent. A hash is written only
-    after ``send_message`` returns a successful ACK, so a timeout or NAK can
-    be retried on a later polling hour.
+    Explicit alert lines take priority and are keyed on the endpoint's
+    ``state`` field. Without alerts, the conditions text is keyed on
+    ``conditionsState`` and broadcast when that value changes. A hash is
+    written only after ``send_message`` returns a successful ACK, so a
+    timeout or NAK is retried on a later poll bucket.
     """
     current = _local_time(now, timezone)
     state_path = state_file.resolve()
@@ -461,7 +511,11 @@ def attempt_mesh_alert(
             ]
         else:
             candidates = [
-                ("conditions", "CONDITIONS: " + status.conditions, status.state)
+                (
+                    "conditions",
+                    "CONDITIONS: " + status.conditions,
+                    status.conditionsState,
+                )
             ]
 
         sent_hashes = state["sent_hashes"]
@@ -482,7 +536,7 @@ def attempt_mesh_alert(
                 f"live weather {kind} alert is {message_bytes} bytes; "
                 f"Meshtastic permits {MAX_MESSAGE_BYTES} bytes in one packet"
             )
-        slot = _hour_slot(current)
+        slot = _interval_slot(current, poll_interval_seconds)
         last_attempt = state.get("last_alert_attempt", {})
         if last_attempt.get("hash") == message_hash and last_attempt.get("slot") == slot:
             return WeatherAttemptResult(
@@ -491,8 +545,8 @@ def attempt_mesh_alert(
 
         # Persist the attempt guard before network activity. This prevents a
         # restart or a tight polling loop from sending the same unacknowledged
-        # message repeatedly within one hour. It is deliberately separate from
-        # sent_hashes: only a confirmed ACK makes a message sent.
+        # message repeatedly within one poll bucket. It is deliberately
+        # separate from sent_hashes: only a confirmed ACK makes a message sent.
         state["last_alert_attempt"] = {
             "hash": message_hash,
             "kind": kind,
@@ -520,7 +574,7 @@ def attempt_mesh_alert(
 
 
 class MeshAlertScheduler:
-    """Poll live conditions at most hourly and send each message once."""
+    """Poll live conditions every two minutes and send each message once."""
 
     def __init__(
         self,
@@ -531,6 +585,7 @@ class MeshAlertScheduler:
         timezone: str = DEFAULT_TIMEZONE,
         fetch_timeout: float = DEFAULT_FETCH_TIMEOUT,
         ack_timeout: float = DEFAULT_ACK_TIMEOUT,
+        poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS,
     ):
         self.interface = interface
         self.state_file = Path(state_file)
@@ -538,15 +593,17 @@ class MeshAlertScheduler:
         self.timezone = timezone
         self.fetch_timeout = fetch_timeout
         self.ack_timeout = ack_timeout
-        self._last_checked_slot = None
+        self.poll_interval_seconds = poll_interval_seconds
+        self._last_poll_at = None
 
     def maybe_send(self, *, now: datetime | None = None) -> WeatherAttemptResult:
-        """Poll once per local hour; deduplication is persisted in state."""
+        """Poll every poll_interval_seconds; deduplication is persisted."""
         current = _local_time(now, self.timezone)
-        slot = _hour_slot(current)
-        if slot == self._last_checked_slot:
-            return WeatherAttemptResult("not_due", day=current.date().isoformat())
-        self._last_checked_slot = slot
+        if self._last_poll_at is not None:
+            elapsed = (current - self._last_poll_at).total_seconds()
+            if elapsed < self.poll_interval_seconds:
+                return WeatherAttemptResult("not_due", day=current.date().isoformat())
+        self._last_poll_at = current
 
         return attempt_mesh_alert(
             lambda message: send_with_interface(
@@ -558,6 +615,7 @@ class MeshAlertScheduler:
             url=self.url,
             timezone=self.timezone,
             fetch_timeout=self.fetch_timeout,
+            poll_interval_seconds=self.poll_interval_seconds,
             now=current,
         )
 

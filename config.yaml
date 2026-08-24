@@ -57,6 +57,8 @@ location_channel_index: 1
 # Force a screen refresh at least this often, even with no changes,
 # so the bottom-right "updated" timestamp stays current
 forced_refresh_seconds: 600
+# Poll the live weather JSON endpoint this often for state/condition changes
+mesh_status_poll_seconds: 120
 
 # --- Optional Emoji Preferences ---
 friends_file: "friends.json"

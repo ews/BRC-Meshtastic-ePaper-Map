@@ -289,11 +289,15 @@ def main(args):
             )
             if getattr(args, "weather_alerts", True):
                 weather_scheduler = WeatherAlertScheduler(interface)
-                mesh_alert_scheduler = MeshAlertScheduler(interface)
+                mesh_alert_scheduler = MeshAlertScheduler(
+                    interface,
+                    poll_interval_seconds=c.mesh_status_poll_seconds,
+                )
                 logging.info(
                     "daily weather forecast and live condition alerts enabled on "
                     "channel 0; forecast starts at 9:00 AM Pacific and live "
-                    "conditions are polled hourly"
+                    "conditions are polled every %d seconds",
+                    c.mesh_status_poll_seconds,
                 )
         while True:
             if not args.debug:

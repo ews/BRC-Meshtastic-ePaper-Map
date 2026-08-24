@@ -136,9 +136,9 @@ def test_position_time_uses_unpadded_12_hour_clock():
 def test_weather_alert_cli_flag_is_explicitly_controllable():
     parser = display_map.build_parser()
 
-    assert parser.parse_args([]).weather_alerts is True
-    assert parser.parse_args(["--weather-alerts"]).weather_alerts is True
-    assert parser.parse_args(["--no-weather-alerts"]).weather_alerts is False
+    assert parser.parse_args([]).weather_alerts == True
+    assert parser.parse_args(["--weather-alerts"]).weather_alerts == True
+    assert parser.parse_args(["--no-weather-alerts"]).weather_alerts == False
 
 
 def test_chat_panel_cli_flag_defaults_on_and_can_be_disabled():
@@ -340,7 +340,7 @@ def test_integrated_weather_reuses_map_interface_and_failures_do_not_stop_map(
             raise RuntimeError("weather unavailable")
 
     class FakeLiveScheduler:
-        def __init__(self, scheduler_interface):
+        def __init__(self, scheduler_interface, poll_interval_seconds=120):
             assert scheduler_interface is interface
             events.append("live-scheduler-init")
 

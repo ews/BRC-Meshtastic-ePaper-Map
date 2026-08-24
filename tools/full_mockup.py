@@ -77,7 +77,10 @@ def _distance_bands(rng, count):
 def _clock_value(address):
     """Return the address clock as a number from 0 through 12."""
     clock = address.split("+", 1)[0].split(",", 1)[0].split(" and ", 1)[0]
-    hour, minute = (int(part) for part in clock.split(":"))
+    try:
+        hour, minute = (int(part) for part in clock.split(":"))
+    except (TypeError, ValueError):
+        return 0
     return (hour % 12) + minute / 60
 
 
@@ -86,7 +89,10 @@ def _address_zone(address):
     if address.endswith("+Trash Fence"):
         return "Trash Fence"
     if "ft from Man" in address:
-        distance_ft = float(address.split(", ", 1)[1].split("ft", 1)[0])
+        try:
+            distance_ft = float(address.split(", ", 1)[1].split("ft", 1)[0])
+        except (TypeError, ValueError, IndexError):
+            return "Unknown"
         if distance_ft < c.distance_man_esplanade:
             return "Near Man"
         return "Beyond City"
