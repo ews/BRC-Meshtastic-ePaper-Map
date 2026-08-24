@@ -115,6 +115,32 @@ def test_latest_messages_filters_channel_and_returns_oldest_first(tmp_path):
     assert [message["sender"] for message in messages] == ["Person 1", "Person 3"]
 
 
+def test_latest_messages_excludes_chat_older_than_three_hours(tmp_path):
+    path = tmp_path / "history.sqlite3"
+    store = HistoryStore(path)
+    assert store.record_message(
+        {
+            "id": 1,
+            "fromId": "!old",
+            "rxTime": 1,
+            "channel": 1,
+            "decoded": {"text": "Old message"},
+        },
+        "Old",
+    )
+    store.close()
+
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE messages SET received_at = ? WHERE packet_id = ?",
+            ("2020-01-01T00:00:00Z", "1"),
+        )
+
+    store = HistoryStore(path)
+    assert store.latest_messages(1) == []
+    store.close()
+
+
 def test_sender_name_comes_from_mesh_node_database():
     interface = SimpleNamespace(nodes={"!abcd1234": {"user": {"longName": "Alice"}}})
     assert sender_name_for_packet({"fromId": "!abcd1234"}, interface) == "Alice"

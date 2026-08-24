@@ -283,8 +283,8 @@ Each rendered frame contains:
 - A compact detail list at the top with symbol, Meshtastic long name, BRC
   address, and an `@ h:mm AM/PM` node-position timestamp.
 - A horizontal separator followed by the three newest received text messages
-  on Channel 1, formatted as `Person @ TIME : MESSAGE`. Use `--no-chat` to
-  disable this panel.
+  on Channel 1, formatted as `Person @ TIME : MESSAGE`. Messages older than
+  three hours disappear automatically. Use `--no-chat` to disable this panel.
 - The city map and dotted trash-fence outline.
 - A colored circular symbol marker at each projected location.
 - `updated: YYYY-MM-DD h:mm:ss AM/PM` in the bottom-right corner, using the Pi's

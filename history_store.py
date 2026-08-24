@@ -5,7 +5,11 @@ import json
 import sqlite3
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+
+CHAT_MAX_AGE_SECONDS = 3 * 60 * 60
 
 
 class HistoryStore:
@@ -175,26 +179,39 @@ class HistoryStore:
             )
         return records
 
-    def latest_messages(self, channel: int, limit: int = 3) -> list[dict]:
-        """Return the newest messages for a channel, oldest first."""
+    def latest_messages(
+        self,
+        channel: int,
+        limit: int = 3,
+        max_age_seconds: int = CHAT_MAX_AGE_SECONDS,
+    ) -> list[dict]:
+        """Return recent messages for a channel, oldest first.
+
+        Age is measured from ``received_at`` so stale sender timestamps cannot
+        keep old chat on the e-paper screen.
+        """
         try:
             channel = int(channel)
             limit = int(limit)
+            max_age_seconds = int(max_age_seconds)
         except (TypeError, ValueError) as exc:
-            raise ValueError("channel and limit must be integers") from exc
-        if limit <= 0:
+            raise ValueError("channel, limit, and max_age_seconds must be integers") from exc
+        if limit <= 0 or max_age_seconds < 0:
             return []
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         with self._lock:
             rows = self._connection.execute(
                 """
                 SELECT sender_name, sender_id, rx_time, received_at, text
                 FROM messages
-                WHERE channel = ?
+                WHERE channel = ? AND received_at >= ?
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (channel, limit),
+                (channel, cutoff, limit),
             ).fetchall()
 
         messages = [
