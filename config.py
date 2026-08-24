@@ -63,7 +63,7 @@ STREET_DISTANCE = 0.002
 min_distance_refresh_ft = float(_cfg["min_distance_refresh_ft"])
 location_channel_index = int(_cfg.get("location_channel_index", 1))
 forced_refresh_seconds = int(_cfg.get("forced_refresh_seconds", 600))
-mesh_status_poll_seconds = int(_cfg.get("mesh_status_poll_seconds", 120))
+mesh_status_poll_seconds = int(_cfg.get("mesh_status_poll_seconds", 3600))
 history_database = _cfg.get("history_database", "mesh_history.sqlite3")
 
 # Optional friend metadata supplies emoji overrides but does not filter locations.

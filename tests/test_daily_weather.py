@@ -459,6 +459,7 @@ def test_live_alert_is_not_marked_sent_without_ack_and_retries_next_poll(
         weather.attempt_mesh_alert(
             fail_send,
             state_file=state_file,
+            poll_interval_seconds=120,
             now=datetime(2026, 8, 20, 16, 0, tzinfo=timezone.utc),
         )
 
@@ -472,6 +473,7 @@ def test_live_alert_is_not_marked_sent_without_ack_and_retries_next_poll(
     result = weather.attempt_mesh_alert(
         succeed_send,
         state_file=state_file,
+        poll_interval_seconds=120,
         now=datetime(2026, 8, 20, 16, 2, tzinfo=timezone.utc),
     )
 

@@ -241,7 +241,9 @@ terminating the map process.
 
 The same service also polls the live JSON endpoint
 `https://brcforecast.corbett.vc/api/public/mesh` at most once per local clock
-hour. A changed `conditions` value is broadcast on channel 0. Explicit entries
+hour by default; configure the interval with `mesh_status_poll_seconds` in
+`config.yaml`. A changed `conditionsState` value is broadcast on channel 0.
+Explicit entries
 in the endpoint's `alerts` array take priority and are broadcast once per
 endpoint state. Each live message is identified by a SHA-256 hash in
 `.daily-weather-state.json` and is added to the sent set only after the mesh
@@ -755,6 +757,7 @@ Edit `config.yaml`; `config.py` is the loader and derived-value module.
 | `brc.brc_noon` | `1.5` hours | Rotation from geographic bearing to BRC clock. |
 | `min_distance_refresh_ft` | `50` ft | Movement needed to refresh e-paper. |
 | `location_channel_index` | `1` | Zero-based Meshtastic channel accepted for live location display. |
+| `mesh_status_poll_seconds` | `3600` | Poll interval for live weather state and condition changes. |
 | `friends_file` | `friends.json` | Optional metadata and emoji overrides; never an allowlist. |
 | `friend_server_port` | `8051` | Optional emoji-preference manager HTTP port. |
 | `history_database` | `mesh_history.sqlite3` | SQLite history file. |

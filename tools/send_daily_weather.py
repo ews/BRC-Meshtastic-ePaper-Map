@@ -7,7 +7,8 @@ Two separate flows share this module:
    Pacific with at most one attempt per clock hour until confirmed.
 2. Live conditions/alerts — JSON from ``/api/public/mesh`` with fields
    ``state`` (alerts trigger), ``conditionsState`` (conditions trigger),
-   ``conditions``, and ``alerts``. Polled every two minutes; a broadcast is
+   ``conditions``, and ``alerts``. Polled every hour by default; the interval
+   is configurable by the caller (default 3600 seconds); a broadcast is
    sent when ``conditionsState`` changes or alert lines appear for a new
    ``state``, and marked sent only after Meshtastic reports an ACK.
 
@@ -47,7 +48,7 @@ START_HOUR = 9
 DEFAULT_FETCH_TIMEOUT = 20.0
 DEFAULT_CONNECTION_TIMEOUT = 30.0
 DEFAULT_ACK_TIMEOUT = 60.0
-DEFAULT_POLL_INTERVAL_SECONDS = 120
+DEFAULT_POLL_INTERVAL_SECONDS = 3600
 STATE_VERSION = 2
 MAX_MESSAGE_BYTES = mesh_pb2.Constants.DATA_PAYLOAD_LEN
 
@@ -575,7 +576,7 @@ def attempt_mesh_alert(
 
 
 class MeshAlertScheduler:
-    """Poll live conditions every two minutes and send each message once."""
+    """Poll live conditions hourly by default and send each message once."""
 
     def __init__(
         self,
